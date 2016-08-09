@@ -1,16 +1,16 @@
-###Socket Programming
+#Socket Programming
 A simple server client application purely using socket API in C++.
-##Makefile 
+###Makefile 
 ```
 make all, make clean
 ```
 
-##Server
+###Server
 ```
 usage : ./server port
 ```
 
-##Client
+###Client
 ```
 usage : ./client server-ip port
 ```
