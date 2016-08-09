@@ -36,19 +36,6 @@ int main(int argc, char* argv[]){
 	buffer[bufferSize] = '\0';
 
 	FILE* socketRead = fdopen(sockid, "r+");
-	//printf("waiting for server to write\n");
-	//fread(buffer, 1, 15, socketRead);
-	//printf("Buffer read:\n");
-	//printf("%s\n", buffer);
-
-        //bzero(buffer,(int)strlen(buffer));
-	//strcpy(buffer, "hello server!\n");
-        //int n = fwrite(buffer, 1, 15, socketRead);
-        //printf("%d\n", n);
-	//fflush(socketRead);
-
-	
-	//int n = recv(sockid, &buffer, bufferSize, 0); //300 is max size
 	int n = fread(buffer, 1, 15, socketRead);
 	if(n==0){
 		printf("server exited\n");
@@ -59,15 +46,14 @@ int main(int argc, char* argv[]){
 		bzero(buffer, (int)strlen(buffer));
 		printf("Enter filename: ");
 		scanf("%s", buffer);
-		//send(sockid, &fileName, int(strlen(fileName))+1, 0);
 		int status = fwrite(buffer, 1, bufferSize, socketRead);
 		if(status==0){
 			printf("server exited\n");
 			return 0;
 		}
 		fflush(socketRead);
-		printf("sent filename >>>>>\n");
 
+		// get fileSize
 		bzero(buffer, (int)strlen(buffer));
 		n=fread(buffer, 1, bufferSize, socketRead);
 		if(n==0){
@@ -76,11 +62,9 @@ int main(int argc, char* argv[]){
 		}
 		int fileSize = stoi(buffer);
 		int charRec = 0;
-		printf("FileSize: %d\n",fileSize );
 
+		// get file contents
 		bzero(buffer, (int)strlen(buffer));
-		printf("File contents are:\n");
-		//while((n=recv(sockid, &buffer, bufferSize, 0)) == bufferSize){
 		while((n=fread(buffer, 1, bufferSize, socketRead)) == bufferSize){
 			if(n==0){
 				printf("server exited\n");
@@ -92,10 +76,6 @@ int main(int argc, char* argv[]){
 			if(fileSize-charRec<=0)
 				break;
 		}
-		//if(n!=0){
-		//	printf("%s", buffer);
-		//}
-		printf("\n>>>>>>%d %d", n, charRec);
 	}
 	return 0;
 }
