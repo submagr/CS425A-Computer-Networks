@@ -11,7 +11,18 @@
 using namespace std;
 
 #define bufferSize 4096 
+#define reqLineSize 8000
 #define maxClients 100
+
+struct status{
+	int status;
+	char msg[1000];
+};
+typedef struct status status;
+
+status S200 = {200, "OK\0"};
+status S400 = {400, "Bad Request\0"};
+status S404 = {404, "Not Found\0"};
 
 // getFileSize function is referred from stack overflow: http://stackoverflow.com/questions/5840148/how-can-i-get-a-files-size-in-c
 int getFileSize(char* fileName){
@@ -22,6 +33,52 @@ int getFileSize(char* fileName){
 	fclose(p_file);
 	return size;	
 }
+
+class parsedReq{
+	public:
+		char reqType[reqLineSize], url[reqLineSize], protocol[reqLineSize], message[reqLineSize];
+		status stat;
+		parsedReq(char* req){
+			bzero(reqType,  reqLineSize);
+			bzero(url,      reqLineSize);
+			bzero(protocol, reqLineSize);
+			bzero(message,  reqLineSize);
+			int i=0, j=0;
+			int reqSize = strlen(req);
+			while(i<reqSize and req[i]!= ' '){
+				reqType[j] = req[i];
+				i++; j++;
+			}
+			i++; //ignore space
+			j=0;
+			while(i<reqSize and req[i]!= ' '){
+				url[j] = req[i];
+				i++; j++;
+			}
+			i++; //ignore space
+			j=0;
+			while(i<reqSize and req[i]!= '\r'){
+				protocol[j] = req[i];
+				i++; j++;
+			}
+			i++; 
+			if(req[i]=='\n'){
+				//req line completely parsed
+				stat = S200;
+				correctURI(url);
+			}
+		}
+
+		void correctURI(char* url){
+			if(url[0]=='/'){
+				if(url[1]=='\0')
+					strcpy(url, "/index.html");
+			}else{
+				stat = S400;
+			}
+			return;
+		}
+};
 
 int main(int argc, char* argv[]){
 	// To handle exited clients
@@ -75,45 +132,58 @@ int main(int argc, char* argv[]){
 			if(fork()==0){
 				// Seding greeting message 
 				int newSockid = clientFd[slot];
-				char buffer[bufferSize] = "Hello client!\n";
-				FILE* socketRead = fdopen(newSockid, "r+");
-				int n = fwrite(buffer, 1, 15, socketRead);
-				fflush(socketRead);
+				//char buffer[bufferSize] = "Hello client!\n";
+				char buffer[bufferSize];
+				//FILE* socketRead = fdopen(newSockid, "r+");
+				//int n = fwrite(buffer, 1, 15, socketRead);
+				int n;
+				//fflush(socketRead);
 
 				// keep accepting file requests until client closes the connection
 				int clientStatus=1;
-				// recieve value is 0 if peer has performed an orderly shutdown
+				// recieved value is 0 if peer has performed an orderly shutdown
 				while(clientStatus>0){
 					bzero(buffer, (int)strlen(buffer));
-					clientStatus = fread(buffer, 1, bufferSize, socketRead);
+					clientStatus = recv(newSockid, buffer, bufferSize, 0);
+					printf("%d %s\n", clientStatus, buffer);
+					parsedReq* pReq = new parsedReq(buffer);	
+					printf("%s---%s---%s---%d---%s---\n",pReq->reqType, pReq->url, pReq->protocol, pReq->stat.status, pReq->stat.msg); 
+					//TODO: send response according to parsing error if any
 					FILE* fd=NULL;
-					fd = fopen(buffer, "r");
+					fd = fopen(pReq->url+1, "r"); // ignore '/'
 					if(fd==NULL){
 						// File not found, send regret 
 						bzero(buffer, (int)strlen(buffer));
-						char notFoundStringSize[] = "20";
-						strcpy(buffer, notFoundStringSize);
-						n = fwrite(buffer, 1, bufferSize, socketRead);
-						fflush(socketRead);
-
-						char notFound[] = "no such file exists\n";
-						bzero(buffer, bufferSize);
-						strcpy(buffer, notFound);
-						n = fwrite(buffer, 1, bufferSize, socketRead);
-						fflush(socketRead);
+						sprintf(buffer, "HTTP/1.1 404 Not Found\nContent-type: text/html\nContent-length: 135\n\nhello");
+						printf("Response: %s\n", buffer);
+						//n = fwrite(buffer, 1, bufferSize, socketRead);
+						//fflush(socketRead);
+						n = send(newSockid, buffer, strlen(buffer), 0);
+						printf("response sent\n");
+						//TODO : handle n if less than buffer size
 					}
 					else{
 						// File found, send contents
-						int fileSize = getFileSize(buffer);
+						int fileSize = getFileSize(pReq->url+1);
 						bzero(buffer, bufferSize);
-						sprintf(buffer, "%d", fileSize);
-						n = fwrite(buffer, 1, bufferSize, socketRead);
-						fflush(socketRead);
+						char contentType[]="text/html";
+						sprintf(buffer, "HTTP/1.1 %d %s\nContent-type: %s\nContent-length: %d\n\n", pReq->stat.status, pReq->stat.msg, contentType, fileSize);
+						n = send(newSockid, buffer, (int)strlen(buffer), 0);
+						printf("Response: \n");
+						printf("%s", buffer);
+						//TODO : Check using n, that total number of bytes are sent.
+						
+						//bzero(buffer, bufferSize);
+						//sprintf(buffer, "%d", fileSize);
+						//n = fwrite(buffer, 1, bufferSize, socketRead);
+						//fflush(socketRead);
 
 						bzero(buffer, bufferSize); 
 						while((n=fread(buffer, 1, bufferSize, fd))>0){
-							fwrite(buffer, 1, bufferSize, socketRead);
-							fflush(socketRead);
+							n = send(newSockid, buffer, n, 0);
+							printf("%s", buffer);
+							//TODO: Check using n, that total number of bytes are sent.
+							//fflush(socketRead);
 							bzero(buffer, (int)strlen(buffer)); 
 						}
 						fclose(fd);
