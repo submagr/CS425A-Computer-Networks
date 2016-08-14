@@ -8,11 +8,15 @@
 #include<iostream>
 #include<string>
 #include<csignal>
+#include <unistd.h> // For finding curr working directory
+#include <errno.h>
 using namespace std;
 
 #define bufferSize 4096 
 #define reqLineSize 8000
 #define maxClients 100
+#define maxFileLocationSize 1024
+
 
 struct status{
 	int status;
@@ -84,10 +88,24 @@ int main(int argc, char* argv[]){
 	// To handle exited clients
 	signal(SIGPIPE, SIG_IGN);
 	if(argc<2){
-		printf("Usage ./server portNumber");
+		printf("Usage ./server portNumber baseDirectory");
 		return 0;
 	}
 	int port = stoi(argv[1]);
+
+	char cwd[1024];
+	if(argc>2){
+		strcpy(cwd, argv[2]);
+		fprintf(stdout, "Using base dir: %s\n", cwd);
+	}else{
+		if (getcwd(cwd, sizeof(cwd)) != NULL)
+			fprintf(stdout, "Using base dir: %s\n", cwd);
+		else{
+			perror("getcwd() error");
+			return 0;
+		}
+	}
+
 	int sockid = socket(AF_INET,SOCK_STREAM, 0); 
 	//To handle multiple clients
 	int clientFd[maxClients];
@@ -150,7 +168,10 @@ int main(int argc, char* argv[]){
 					printf("%s---%s---%s---%d---%s---\n",pReq->reqType, pReq->url, pReq->protocol, pReq->stat.status, pReq->stat.msg); 
 					//TODO: send response according to parsing error if any
 					FILE* fd=NULL;
-					fd = fopen(pReq->url+1, "r"); // ignore '/'
+					char fileLocation[maxFileLocationSize];
+					strcpy(fileLocation, cwd);
+					strcat(fileLocation, pReq->url);
+					fd = fopen(fileLocation, "r"); // ignore '/'
 					if(fd==NULL){
 						// File not found, send regret 
 						bzero(buffer, (int)strlen(buffer));
