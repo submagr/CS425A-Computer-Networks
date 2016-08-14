@@ -102,7 +102,7 @@ int main(int argc, char* argv[]){
 	serverAdd.sin_family = AF_INET;
 	serverAdd.sin_port=htons(port);
 	// Configure ip address of server below
-	serverAdd.sin_addr.s_addr=inet_addr("10.0.2.15");
+	serverAdd.sin_addr.s_addr=inet_addr("127.0.0.1");
 	int bind_status = bind(sockid, (struct sockaddr*)&serverAdd, sizeof(serverAdd));
 	if(bind_status==0)
 		printf("bind successful\n");
@@ -154,7 +154,7 @@ int main(int argc, char* argv[]){
 					if(fd==NULL){
 						// File not found, send regret 
 						bzero(buffer, (int)strlen(buffer));
-						sprintf(buffer, "HTTP/1.1 404 Not Found\nContent-type: text/html\nContent-length: 135\n\nhello");
+						sprintf(buffer, "HTTP/1.1 404 Not Found\nContent-type: text/html\nContent-length: 0\n\n");
 						printf("Response: %s\n", buffer);
 						//n = fwrite(buffer, 1, bufferSize, socketRead);
 						//fflush(socketRead);
@@ -166,7 +166,7 @@ int main(int argc, char* argv[]){
 						// File found, send contents
 						int fileSize = getFileSize(pReq->url+1);
 						bzero(buffer, bufferSize);
-						char contentType[]="text/html";
+						char contentType[]="application/octet-stream";
 						sprintf(buffer, "HTTP/1.1 %d %s\nContent-type: %s\nContent-length: %d\n\n", pReq->stat.status, pReq->stat.msg, contentType, fileSize);
 						n = send(newSockid, buffer, (int)strlen(buffer), 0);
 						printf("Response: \n");
