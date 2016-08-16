@@ -1,3 +1,4 @@
+//TODO : Delete parsedReq class after use. Else it will crash
 #include<iostream>
 #include<stdio.h>
 #include<sys/socket.h>
@@ -8,14 +9,18 @@
 #include<iostream>
 #include<string>
 #include<csignal>
-#include <unistd.h> // For finding curr working directory
-#include <errno.h>
+#include<unistd.h> // For finding curr working directory
+#include<errno.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 using namespace std;
 
 #define bufferSize 4096 
 #define reqLineSize 8000
 #define maxClients 100
 #define maxFileLocationSize 1024
+#define maxContentTypeSize 20 
+
 
 
 struct status{
@@ -30,7 +35,76 @@ status S404 = {404, "Not Found\0"};
 char ResponseFormat[] = "HTTP/1.1 %d %s\nContent-type: %s\nContent-length: %d\n\n%s";
 char parseErrorHtml[] = "<html><body><h1>Parse Error</h1></body></html>";
 char fileNotFoundHtml[] = "Requested file not found";
+
+char fileTypeHtml[][maxContentTypeSize] = {".html", ".htm"};
+char fileTypePdf[][maxContentTypeSize] = {".pdf"};
+char fileTypeImage[][maxContentTypeSize] = {".jpg", ".png", ".gif"};
+char fileTypeText[][maxContentTypeSize] = {".txt", ".text", ".c", ".cpp"};
+
+char contentTypeHtml[] = "text/html";
+char contentTypePdf[] = "application/pdf";
+char contentTypeImage[] = "image/gif";
+char contentTypeOther[] = "application/octet-stream";
+char contentTypeText[] = "text/plain";
+char contentTypeDir[] = "Directory";
+
 char cwd[1024];
+
+
+// Reference: http://stackoverflow.com/questions/4553012/checking-if-a-file-is-a-directory-or-just-a-file
+int is_directory(const char *path)
+{
+    struct stat path_stat;
+    stat(path, &path_stat);
+    return S_ISDIR(path_stat.st_mode);
+}
+
+int inArray(char* srcExt, char targetExt[][20], int length ){
+	for(int i=0; i<length;i++)
+		if(strcmp(srcExt, targetExt[i])==0){
+			printf("Matched extension %s\n", targetExt[i]);
+			return 1;
+		}
+	return 0;		
+}
+
+//Reference : http://stackoverflow.com/questions/5309471/getting-file-extension-in-c
+void getContentType(char* filePath, char* contentType){
+	char* ext = strrchr(filePath, '.');
+	printf("Extracted extension: %s\n", ext);
+	if (!ext || strcmp(ext,filePath)==0){
+		if(is_directory(filePath)){
+			//directory or file with no extension
+			strcpy(contentType, contentTypeDir);
+			return;
+		}
+	}
+	//html
+	else if(inArray(ext, fileTypeHtml, sizeof(fileTypeHtml)/sizeof(*fileTypeHtml))){
+		strcpy(contentType, contentTypeHtml);
+		return;
+	}
+	//Image
+	else if (inArray(ext, fileTypeImage, sizeof(fileTypeImage)/sizeof(*fileTypeImage))){
+		strcpy(contentType, contentTypeImage);
+		return;
+	}
+	//Pdf
+	else if (inArray(ext, fileTypePdf, sizeof(fileTypePdf)/sizeof(*fileTypePdf))){
+		strcpy(contentType, contentTypePdf);
+		return;
+	}
+	//Pdf
+	else if (inArray(ext, fileTypeText, sizeof(fileTypeText)/sizeof(*fileTypeText))){
+		strcpy(contentType, contentTypeText);
+		return;
+	}
+	//Others
+	else{
+		strcpy(contentType, contentTypeOther);
+		return;
+	}
+}
 
 // getFileSize function is referred from stack overflow: http://stackoverflow.com/questions/5840148/how-can-i-get-a-files-size-in-c
 int getFileSize(char* fileName){
@@ -40,6 +114,12 @@ int getFileSize(char* fileName){
 	int size = ftell(p_file);
 	fclose(p_file);
 	return size;	
+}
+
+char* getFileType(){
+	// Get content-type of response 
+	// get extension, and null if not. 
+	// switch case according to extension
 }
 
 class parsedReq{
@@ -217,7 +297,7 @@ int main(int argc, char* argv[]){
 						// File not found, send regret 
 						bzero(buffer, (int)strlen(buffer));
 						//"HTTP/1.1 %d %s\nContent-type: %s\nContent-length: %d\n\n%s";
-						sprintf(buffer, ResponseFormat, 404, "Not Found", "text/html", (int)strlen(fileNotFoundHtml), fileNotFoundHtml);
+						sprintf(buffer, ResponseFormat, 404, "Not Found", contentTypeHtml, (int)strlen(fileNotFoundHtml), fileNotFoundHtml);
 						//n = fwrite(buffer, 1, bufferSize, socketRead);
 						//fflush(socketRead);
 						n = send(newSockid, buffer, strlen(buffer), 0);
@@ -229,7 +309,10 @@ int main(int argc, char* argv[]){
 						// File found, send contents
 						int fileSize = getFileSize(pReq->url);
 						bzero(buffer, bufferSize);
-						char contentType[]="text/html";
+
+						char contentType[maxContentTypeSize];
+						getContentType(pReq->url, contentType);
+
 						//"HTTP/1.1 %d %s\nContent-type: %s\nContent-length: %d\n\n%s";
 						sprintf(buffer, ResponseFormat, pReq->stat.status, pReq->stat.msg, contentType, fileSize, "");
 						n = send(newSockid, buffer, (int)strlen(buffer), 0);
@@ -242,6 +325,7 @@ int main(int argc, char* argv[]){
 						//fflush(socketRead);
 
 						bzero(buffer, bufferSize); 
+						bzero(contentType, (int)strlen(contentType)); 
 						while((n=fread(buffer, 1, bufferSize, fd))>0){
 							n = send(newSockid, buffer, n, 0);
 							printf("%s", buffer);
