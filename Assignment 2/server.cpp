@@ -27,6 +27,10 @@ typedef struct status status;
 status S200 = {200, "OK\0"};
 status S400 = {400, "Bad Request\0"};
 status S404 = {404, "Not Found\0"};
+char ResponseFormat[] = "HTTP/1.1 %d %s\nContent-type: %s\nContent-length: %d\n\n%s";
+char parseErrorHtml[] = "<html><body><h1>Parse Error</h1></body></html>";
+char fileNotFoundHtml[] = "Requested file not found";
+char cwd[1024];
 
 // getFileSize function is referred from stack overflow: http://stackoverflow.com/questions/5840148/how-can-i-get-a-files-size-in-c
 int getFileSize(char* fileName){
@@ -61,15 +65,19 @@ class parsedReq{
 			}
 			i++; //ignore space
 			j=0;
-			while(i<reqSize and req[i]!= '\r'){
+			while(i<reqSize and req[i]!= '\r' and req[i]!='\n'){
 				protocol[j] = req[i];
+				printf("%c", req[i]);
 				i++; j++;
 			}
-			i++; 
-			if(req[i]=='\n'){
+			// RequestLine is valid if it ends with /r/n or /n
+			if(req[i]=='\n' or (i<reqSize-1 and req[i] == '\r' and req[i+1] == '\n')){
 				//req line completely parsed
 				stat = S200;
 				correctURI(url);
+				checkReqSemantics();
+			}else{
+				stat = S400;
 			}
 		}
 
@@ -79,8 +87,25 @@ class parsedReq{
 					strcpy(url, "/index.html");
 			}else{
 				stat = S400;
+				strcpy(stat.msg,"URL should start with /");
 			}
+			char tempUrl[1024];
+			sprintf(tempUrl, "%s%s", cwd, url);
+			bzero(url, strlen(url));
+			strcpy(url, tempUrl);
 			return;
+		}
+		void checkReqSemantics(){
+			if(strcmp(reqType, "GET\0")!=0){
+				stat=S400;
+				bzero(stat.msg, (int)strlen(stat.msg));
+				strcpy(stat.msg,"Bad Request: Only Get Request is supported as of now\0");
+			}
+			if(strcmp(protocol,"HTTP/1.1\0")!=0){
+				stat = S400;
+				bzero(stat.msg, (int)strlen(stat.msg));
+				strcpy(stat.msg, "Bad Request: Only HTTP/1.1 protocol is supported\0");
+			}
 		}
 };
 
@@ -88,18 +113,19 @@ int main(int argc, char* argv[]){
 	// To handle exited clients
 	signal(SIGPIPE, SIG_IGN);
 	if(argc<2){
-		printf("Usage ./server portNumber baseDirectory");
+		printf("Usage ./server portNumber [baseDirectory without / symbol at end]");
 		return 0;
 	}
 	int port = stoi(argv[1]);
 
-	char cwd[1024];
 	if(argc>2){
 		strcpy(cwd, argv[2]);
 		fprintf(stdout, "Using base dir: %s\n", cwd);
+		//TODO: Detect / at the end of directory
 	}else{
-		if (getcwd(cwd, sizeof(cwd)) != NULL)
+		if (getcwd(cwd, sizeof(cwd)) != NULL){
 			fprintf(stdout, "Using base dir: %s\n", cwd);
+		}
 		else{
 			perror("getcwd() error");
 			return 0;
@@ -120,7 +146,7 @@ int main(int argc, char* argv[]){
 	serverAdd.sin_family = AF_INET;
 	serverAdd.sin_port=htons(port);
 	// Configure ip address of server below
-	serverAdd.sin_addr.s_addr=inet_addr("127.0.0.1");
+	serverAdd.sin_addr.s_addr=INADDR_ANY;
 	int bind_status = bind(sockid, (struct sockaddr*)&serverAdd, sizeof(serverAdd));
 	if(bind_status==0)
 		printf("bind successful\n");
@@ -163,35 +189,51 @@ int main(int argc, char* argv[]){
 				while(clientStatus>0){
 					bzero(buffer, (int)strlen(buffer));
 					clientStatus = recv(newSockid, buffer, bufferSize, 0);
-					printf("%d %s\n", clientStatus, buffer);
+					printf("Request recieved:\n--------\n%s\n-------\n", buffer);
 					parsedReq* pReq = new parsedReq(buffer);	
-					printf("%s---%s---%s---%d---%s---\n",pReq->reqType, pReq->url, pReq->protocol, pReq->stat.status, pReq->stat.msg); 
+					printf("Request Type: %s\nRequested Url: %s\nRequest Protocol: %s\nRequest Status: %d\nRequest Message: %s\n",pReq->reqType, pReq->url, pReq->protocol, pReq->stat.status, pReq->stat.msg); 
+					if(pReq->stat.status!=200){
+						printf("Unable to parse request");
+						bzero(buffer, (int)strlen(buffer));
+						//"HTTP/1.1 %d %s\nContent-type: %s\nContent-length: %d\n\n%s";
+						sprintf(buffer, ResponseFormat, pReq->stat.status, pReq->stat.msg, "text/html", strlen(parseErrorHtml),parseErrorHtml);
+						send(newSockid, buffer, strlen(buffer), 0);
+						printf("Response sent:\n%s",buffer);
+						continue;
+					}
+					else{
+						printf("Request successfully parsed\n");
+						printf("Request Type: %s\nRequested Url: %s\nRequest Protocol: %s\nRequest Status: %d\nRequest Message: %s\n",pReq->reqType, pReq->url, pReq->protocol, pReq->stat.status, pReq->stat.msg); 
+					}
 					//TODO: send response according to parsing error if any
 					FILE* fd=NULL;
-					char fileLocation[maxFileLocationSize];
-					strcpy(fileLocation, cwd);
-					strcat(fileLocation, pReq->url);
-					fd = fopen(fileLocation, "r"); // ignore '/'
+					//char fileLocation[maxFileLocationSize];
+					//strcpy(fileLocation, cwd);
+					//strcat(fileLocation, pReq->url);
+					fd = fopen(pReq->url, "r"); 
+					printf("[DEBUG] opening url: %s \n", pReq->url);
 					if(fd==NULL){
+						printf("[DEBUG] url not found \n");
 						// File not found, send regret 
 						bzero(buffer, (int)strlen(buffer));
-						sprintf(buffer, "HTTP/1.1 404 Not Found\nContent-type: text/html\nContent-length: 0\n\n");
-						printf("Response: %s\n", buffer);
+						//"HTTP/1.1 %d %s\nContent-type: %s\nContent-length: %d\n\n%s";
+						sprintf(buffer, ResponseFormat, 404, "Not Found", "text/html", (int)strlen(fileNotFoundHtml), fileNotFoundHtml);
 						//n = fwrite(buffer, 1, bufferSize, socketRead);
 						//fflush(socketRead);
 						n = send(newSockid, buffer, strlen(buffer), 0);
-						printf("response sent\n");
+						printf("Response sent:\n%s\n", buffer);
 						//TODO : handle n if less than buffer size
 					}
 					else{
+						printf("[DEBUG] url found \n");
 						// File found, send contents
-						int fileSize = getFileSize(pReq->url+1);
+						int fileSize = getFileSize(pReq->url);
 						bzero(buffer, bufferSize);
-						char contentType[]="application/octet-stream";
-						sprintf(buffer, "HTTP/1.1 %d %s\nContent-type: %s\nContent-length: %d\n\n", pReq->stat.status, pReq->stat.msg, contentType, fileSize);
+						char contentType[]="text/html";
+						//"HTTP/1.1 %d %s\nContent-type: %s\nContent-length: %d\n\n%s";
+						sprintf(buffer, ResponseFormat, pReq->stat.status, pReq->stat.msg, contentType, fileSize, "");
 						n = send(newSockid, buffer, (int)strlen(buffer), 0);
-						printf("Response: \n");
-						printf("%s", buffer);
+						printf("Response sent:\n%s", buffer);
 						//TODO : Check using n, that total number of bytes are sent.
 						
 						//bzero(buffer, bufferSize);
@@ -204,7 +246,7 @@ int main(int argc, char* argv[]){
 							n = send(newSockid, buffer, n, 0);
 							printf("%s", buffer);
 							//TODO: Check using n, that total number of bytes are sent.
-							//fflush(socketRead);
+							printf("--------%s---------", buffer);
 							bzero(buffer, (int)strlen(buffer)); 
 						}
 						fclose(fd);
