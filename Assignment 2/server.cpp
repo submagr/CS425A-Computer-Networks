@@ -13,6 +13,7 @@
 #include<errno.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <ctime>
 using namespace std;
 
 #define bufferSize 4096 
@@ -20,8 +21,21 @@ using namespace std;
 #define maxClients 100
 #define maxFileLocationSize 1024
 #define maxContentTypeSize 20 
+#define smallBufferSize 50
 
-
+void getCurrTime(char* buffer, int maxSize){
+	// Parameters:
+	//		buffer := final time to be stored here,
+	//		maxSize := max size of time string
+	// Return-Value:
+	//		current time in gmt
+	// Example:
+	//		Thu, 18 Aug 2016 15:19:48 GMT
+	time_t t = time(NULL);
+	struct tm tm = *gmtime(&t);
+	strftime(buffer, maxSize, "%a, %d %Y %X %Z", &tm);
+	return;
+}
 
 struct status{
 	int status;
@@ -32,8 +46,10 @@ typedef struct status status;
 status S200 = {200, "OK\0"};
 status S400 = {400, "Bad Request\0"};
 status S404 = {404, "Not Found\0"};
-char ResponseFormat[] = "HTTP/1.1 %d %s\nContent-type: %s\nContent-length: %d\n\n%s";
-char parseErrorHtml[] = "<html><body><h1>Parse Error</h1></body></html>";
+status S501 = {501, "Not Implemented\0"};
+status S505 = {505, "HTTP Version Not Supported\0"};
+char ResponseFormat[] = "HTTP/1.1 %d %s\nContent-type: %s\nContent-length: %d\nDate: %s\n\n%s";
+char errorHtml[] = "<html><body><h1>%s</h1><p>Http Response Status: %d<br>Http Response Message: %s</p></body></html>";
 char fileNotFoundHtml[] = "Requested file not found";
 
 char fileTypeHtml[][maxContentTypeSize] = {".html", ".htm"};
@@ -116,11 +132,6 @@ int getFileSize(char* fileName){
 	return size;	
 }
 
-char* getFileType(){
-	// Get content-type of response 
-	// get extension, and null if not. 
-	// switch case according to extension
-}
 
 class parsedReq{
 	public:
@@ -177,14 +188,10 @@ class parsedReq{
 		}
 		void checkReqSemantics(){
 			if(strcmp(reqType, "GET\0")!=0){
-				stat=S400;
-				bzero(stat.msg, (int)strlen(stat.msg));
-				strcpy(stat.msg,"Bad Request: Only Get Request is supported as of now\0");
+				stat=S501;
 			}
 			if(strcmp(protocol,"HTTP/1.1\0")!=0){
-				stat = S400;
-				bzero(stat.msg, (int)strlen(stat.msg));
-				strcpy(stat.msg, "Bad Request: Only HTTP/1.1 protocol is supported\0");
+				stat = S505;
 			}
 		}
 };
@@ -193,7 +200,7 @@ int main(int argc, char* argv[]){
 	// To handle exited clients
 	signal(SIGPIPE, SIG_IGN);
 	if(argc<2){
-		printf("Usage ./server portNumber [baseDirectory without / symbol at end]");
+		printf("Usage ./server portNumber [baseDirectory without / symbol at end]\n");
 		return 0;
 	}
 	int port = stoi(argv[1]);
@@ -255,19 +262,19 @@ int main(int argc, char* argv[]){
 			//Child will handle request
 			if(fork()==0){
 				// Seding greeting message 
+				close(sockid);
 				int newSockid = clientFd[slot];
-				//char buffer[bufferSize] = "Hello client!\n";
 				char buffer[bufferSize];
-				//FILE* socketRead = fdopen(newSockid, "r+");
-				//int n = fwrite(buffer, 1, 15, socketRead);
 				int n;
-				//fflush(socketRead);
 
 				// keep accepting file requests until client closes the connection
 				int clientStatus=1;
-				// recieved value is 0 if peer has performed an orderly shutdown
+				char resHtml[bufferSize]; 
+				char currTime[smallBufferSize];
 				while(clientStatus>0){
 					bzero(buffer, (int)strlen(buffer));
+					bzero(resHtml, (int)strlen(resHtml));
+					bzero(currTime, (int)strlen(currTime));
 					clientStatus = recv(newSockid, buffer, bufferSize, 0);
 					printf("Request recieved:\n--------\n%s\n-------\n", buffer);
 					parsedReq* pReq = new parsedReq(buffer);	
@@ -275,8 +282,12 @@ int main(int argc, char* argv[]){
 					if(pReq->stat.status!=200){
 						printf("Unable to parse request");
 						bzero(buffer, (int)strlen(buffer));
+						//get response html
+						sprintf(resHtml, errorHtml, "Request parsing error", pReq->stat.status, pReq->stat.msg);
+						//get response time
+						getCurrTime(currTime, smallBufferSize);
 						//"HTTP/1.1 %d %s\nContent-type: %s\nContent-length: %d\n\n%s";
-						sprintf(buffer, ResponseFormat, pReq->stat.status, pReq->stat.msg, "text/html", strlen(parseErrorHtml),parseErrorHtml);
+						sprintf(buffer, ResponseFormat, pReq->stat.status, pReq->stat.msg, "text/html", strlen(resHtml), currTime, resHtml);
 						send(newSockid, buffer, strlen(buffer), 0);
 						printf("Response sent:\n%s",buffer);
 						continue;
@@ -296,8 +307,12 @@ int main(int argc, char* argv[]){
 						printf("[DEBUG] url not found \n");
 						// File not found, send regret 
 						bzero(buffer, (int)strlen(buffer));
+						//Response html
+						sprintf(resHtml, errorHtml, "Requested file not found", 404, "Not Found");
+						//Response time
+						getCurrTime(currTime, smallBufferSize);
 						//"HTTP/1.1 %d %s\nContent-type: %s\nContent-length: %d\n\n%s";
-						sprintf(buffer, ResponseFormat, 404, "Not Found", contentTypeHtml, (int)strlen(fileNotFoundHtml), fileNotFoundHtml);
+						sprintf(buffer, ResponseFormat, 404, "Not Found", contentTypeHtml, (int)strlen(resHtml), currTime, resHtml);
 						//n = fwrite(buffer, 1, bufferSize, socketRead);
 						//fflush(socketRead);
 						n = send(newSockid, buffer, strlen(buffer), 0);
@@ -313,8 +328,10 @@ int main(int argc, char* argv[]){
 						char contentType[maxContentTypeSize];
 						getContentType(pReq->url, contentType);
 
+						//get curr time
+						getCurrTime(currTime, smallBufferSize);
 						//"HTTP/1.1 %d %s\nContent-type: %s\nContent-length: %d\n\n%s";
-						sprintf(buffer, ResponseFormat, pReq->stat.status, pReq->stat.msg, contentType, fileSize, "");
+						sprintf(buffer, ResponseFormat, pReq->stat.status, pReq->stat.msg, contentType, fileSize, currTime, "");
 						n = send(newSockid, buffer, (int)strlen(buffer), 0);
 						printf("Response sent:\n%s", buffer);
 						//TODO : Check using n, that total number of bytes are sent.
@@ -328,9 +345,9 @@ int main(int argc, char* argv[]){
 						bzero(contentType, (int)strlen(contentType)); 
 						while((n=fread(buffer, 1, bufferSize, fd))>0){
 							n = send(newSockid, buffer, n, 0);
-							printf("%s", buffer);
+							//printf("%s", buffer);
 							//TODO: Check using n, that total number of bytes are sent.
-							printf("--------%s---------", buffer);
+							//printf("--------%s---------", buffer);
 							bzero(buffer, (int)strlen(buffer)); 
 						}
 						fclose(fd);
@@ -338,6 +355,8 @@ int main(int argc, char* argv[]){
 				}
 				printf("Client exited\n");
 				close(clientFd[slot]);
+				//TODO : Check race conditions here
+				clientFd[slot] = -1;
 				exit(0);
 			}
 			//Parent will listen on another socket
