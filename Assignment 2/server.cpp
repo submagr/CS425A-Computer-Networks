@@ -48,7 +48,7 @@ status S400 = {400, "Bad Request\0"};
 status S404 = {404, "Not Found\0"};
 status S501 = {501, "Not Implemented\0"};
 status S505 = {505, "HTTP Version Not Supported\0"};
-char ResponseFormat[] = "HTTP/1.1 %d %s\nContent-type: %s\nContent-length: %d\nDate: %s\n\n%s";
+char ResponseFormat[] = "HTTP/1.1 %d %s\nContent-type: %s\nContent-length: %d\nDate: %s\nServer: %s\n\n%s";
 char errorHtml[] = "<html><body><h1>%s</h1><p>Http Response Status: %d<br>Http Response Message: %s</p></body></html>";
 char fileNotFoundHtml[] = "Requested file not found";
 
@@ -223,6 +223,9 @@ int main(int argc, char* argv[]){
 	//To handle multiple clients
 	int clientFd[maxClients];
 	int slot = 0, i;
+	//get constant server name
+	char serverName[smallBufferSize]; 
+	gethostname(serverName, smallBufferSize);
 	for(i=0;i<maxClients; i++)
 		clientFd[i] = -1;
 	if(sockid<0){
@@ -287,7 +290,7 @@ int main(int argc, char* argv[]){
 						//get response time
 						getCurrTime(currTime, smallBufferSize);
 						//"HTTP/1.1 %d %s\nContent-type: %s\nContent-length: %d\n\n%s";
-						sprintf(buffer, ResponseFormat, pReq->stat.status, pReq->stat.msg, "text/html", strlen(resHtml), currTime, resHtml);
+						sprintf(buffer, ResponseFormat, pReq->stat.status, pReq->stat.msg, "text/html", strlen(resHtml), currTime, serverName, resHtml);
 						send(newSockid, buffer, strlen(buffer), 0);
 						printf("Response sent:\n%s",buffer);
 						continue;
@@ -312,7 +315,7 @@ int main(int argc, char* argv[]){
 						//Response time
 						getCurrTime(currTime, smallBufferSize);
 						//"HTTP/1.1 %d %s\nContent-type: %s\nContent-length: %d\n\n%s";
-						sprintf(buffer, ResponseFormat, 404, "Not Found", contentTypeHtml, (int)strlen(resHtml), currTime, resHtml);
+						sprintf(buffer, ResponseFormat, 404, "Not Found", contentTypeHtml, (int)strlen(resHtml), currTime, serverName, resHtml);
 						//n = fwrite(buffer, 1, bufferSize, socketRead);
 						//fflush(socketRead);
 						n = send(newSockid, buffer, strlen(buffer), 0);
@@ -331,7 +334,7 @@ int main(int argc, char* argv[]){
 						//get curr time
 						getCurrTime(currTime, smallBufferSize);
 						//"HTTP/1.1 %d %s\nContent-type: %s\nContent-length: %d\n\n%s";
-						sprintf(buffer, ResponseFormat, pReq->stat.status, pReq->stat.msg, contentType, fileSize, currTime, "");
+						sprintf(buffer, ResponseFormat, pReq->stat.status, pReq->stat.msg, contentType, fileSize, currTime, serverName, "");
 						n = send(newSockid, buffer, (int)strlen(buffer), 0);
 						printf("Response sent:\n%s", buffer);
 						//TODO : Check using n, that total number of bytes are sent.
