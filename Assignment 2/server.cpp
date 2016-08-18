@@ -14,14 +14,15 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <ctime>
+#include <dirent.h>
 using namespace std;
 
 #define bufferSize 4096 
 #define reqLineSize 8000
 #define maxClients 100
 #define maxFileLocationSize 1024
-#define maxContentTypeSize 20 
-#define smallBufferSize 50
+#define maxContentTypeSize 1024 
+#define smallBufferSize 1024
 
 void getCurrTime(char* buffer, int maxSize){
 	// Parameters:
@@ -51,6 +52,10 @@ status S505 = {505, "HTTP Version Not Supported\0"};
 char ResponseFormat[] = "HTTP/1.1 %d %s\nContent-type: %s\nContent-length: %d\nDate: %s\nServer: %s\n\n%s";
 char errorHtml[] = "<html><body><h1>%s</h1><p>Http Response Status: %d<br>Http Response Message: %s</p></body></html>";
 char fileNotFoundHtml[] = "Requested file not found";
+//<HEAD><TITLE>404 Not Found</TITLE></HEAD>[CRLF]
+//<BODY><H1>404 Not Found</H1>[CRLF]
+//The requested URL /x.html was not found on this server.[CRLF]
+//</BODY>
 
 char fileTypeHtml[][maxContentTypeSize] = {".html", ".htm"};
 char fileTypePdf[][maxContentTypeSize] = {".pdf"};
@@ -75,7 +80,7 @@ int is_directory(const char *path)
     return S_ISDIR(path_stat.st_mode);
 }
 
-int inArray(char* srcExt, char targetExt[][20], int length ){
+int inArray(char* srcExt, char targetExt[][maxContentTypeSize], int length ){
 	for(int i=0; i<length;i++)
 		if(strcmp(srcExt, targetExt[i])==0){
 			printf("Matched extension %s\n", targetExt[i]);
@@ -89,8 +94,9 @@ void getContentType(char* filePath, char* contentType){
 	char* ext = strrchr(filePath, '.');
 	printf("Extracted extension: %s\n", ext);
 	if (!ext || strcmp(ext,filePath)==0){
+		//directory or file with no extension
 		if(is_directory(filePath)){
-			//directory or file with no extension
+			//directory
 			strcpy(contentType, contentTypeDir);
 			return;
 		}
@@ -132,14 +138,49 @@ int getFileSize(char* fileName){
 	return size;	
 }
 
+int getDirListing(char* buffer, char* directory, char* origDir){
+	if(origDir[(int)strlen(origDir)-1]!='/')
+		origDir[(int)strlen(origDir)] = '/';
+	DIR *dp;
+	struct dirent *ep;
+	dp = opendir(directory);
+
+	char listHtml[bufferSize];
+	char relPath[smallBufferSize];
+	char temp[smallBufferSize];
+	char dirListFormat[] = "<!DOCTYPE html><html><body><h1>Directory Contents</h1><br>%s</body></html>";
+	//printf("dirListFormat: %s\n", dirListFormat);
+	if (dp != NULL)
+	{
+		while (ep = readdir(dp)){
+			bzero(relPath, (int)strlen(relPath));
+			bzero(temp, (int)strlen(temp));
+			strncpy(relPath, origDir, smallBufferSize-1);
+			strncat(relPath, ep->d_name, smallBufferSize - (int)strlen(relPath));
+			snprintf(temp, smallBufferSize, "<li><a href=\"%s\">%s</li>", relPath, ep->d_name);
+			printf("%s\n", temp);
+			strncat(listHtml, temp, bufferSize - (int)strlen(listHtml));
+		}
+		printf("dirListFormat: %s\n", dirListFormat);
+		snprintf(buffer, bufferSize, dirListFormat, listHtml);
+		bzero(listHtml, (int)strlen(listHtml));
+		(void) closedir (dp);
+	}
+	else{
+		sprintf(buffer, "Couldn't open the directory");
+		return 0;
+	}
+	return 1;
+}
 
 class parsedReq{
 	public:
-		char reqType[reqLineSize], url[reqLineSize], protocol[reqLineSize], message[reqLineSize];
+		char reqType[reqLineSize], url[reqLineSize], originalUrl[reqLineSize], protocol[reqLineSize], message[reqLineSize];
 		status stat;
 		parsedReq(char* req){
 			bzero(reqType,  reqLineSize);
 			bzero(url,      reqLineSize);
+			bzero(originalUrl,      reqLineSize);
 			bzero(protocol, reqLineSize);
 			bzero(message,  reqLineSize);
 			int i=0, j=0;
@@ -151,7 +192,7 @@ class parsedReq{
 			i++; //ignore space
 			j=0;
 			while(i<reqSize and req[i]!= ' '){
-				url[j] = req[i];
+				originalUrl[j] = req[i];
 				i++; j++;
 			}
 			i++; //ignore space
@@ -165,25 +206,22 @@ class parsedReq{
 			if(req[i]=='\n' or (i<reqSize-1 and req[i] == '\r' and req[i+1] == '\n')){
 				//req line completely parsed
 				stat = S200;
-				correctURI(url);
+				correctURI(originalUrl);
 				checkReqSemantics();
 			}else{
 				stat = S400;
 			}
 		}
 
-		void correctURI(char* url){
-			if(url[0]=='/'){
-				if(url[1]=='\0')
-					strcpy(url, "/index.html");
+		void correctURI(char* originalUrl){
+			if(originalUrl[0]=='/'){
+				if(originalUrl[1]=='\0')
+					strcpy(originalUrl, "/index.html");
 			}else{
 				stat = S400;
 				strcpy(stat.msg,"URL should start with /");
 			}
-			char tempUrl[1024];
-			sprintf(tempUrl, "%s%s", cwd, url);
-			bzero(url, strlen(url));
-			strcpy(url, tempUrl);
+			sprintf(url, "%s%s", cwd, originalUrl);
 			return;
 		}
 		void checkReqSemantics(){
@@ -328,11 +366,20 @@ int main(int argc, char* argv[]){
 						int fileSize = getFileSize(pReq->url);
 						bzero(buffer, bufferSize);
 
-						char contentType[maxContentTypeSize];
-						getContentType(pReq->url, contentType);
-
 						//get curr time
 						getCurrTime(currTime, smallBufferSize);
+
+						char contentType[maxContentTypeSize];
+						getContentType(pReq->url, contentType);
+						if(strcmp(contentType, contentTypeDir)==0){
+							//Directory
+							int a = getDirListing(resHtml, pReq-> url, pReq->originalUrl);
+							printf("RESHTML: %s\n", resHtml);
+							sprintf(buffer, ResponseFormat, pReq->stat.status, pReq->stat.msg, contentTypeHtml, (int)strlen(resHtml), currTime, serverName, resHtml);
+							n = send(newSockid, buffer, (int)strlen(buffer), 0);
+							printf("Response sent:\n%s", buffer);
+							continue;
+						}
 						//"HTTP/1.1 %d %s\nContent-type: %s\nContent-length: %d\n\n%s";
 						sprintf(buffer, ResponseFormat, pReq->stat.status, pReq->stat.msg, contentType, fileSize, currTime, serverName, "");
 						n = send(newSockid, buffer, (int)strlen(buffer), 0);
