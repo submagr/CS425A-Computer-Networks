@@ -50,12 +50,7 @@ status S404 = {404, "Not Found\0"};
 status S501 = {501, "Not Implemented\0"};
 status S505 = {505, "HTTP Version Not Supported\0"};
 char ResponseFormat[] = "HTTP/1.1 %d %s\nContent-type: %s\nContent-length: %d\nDate: %s\nServer: %s\n\n%s";
-char errorHtml[] = "<html><body><h1>%s</h1><p>Http Response Status: %d<br>Http Response Message: %s</p></body></html>";
-char fileNotFoundHtml[] = "Requested file not found";
-//<HEAD><TITLE>404 Not Found</TITLE></HEAD>[CRLF]
-//<BODY><H1>404 Not Found</H1>[CRLF]
-//The requested URL /x.html was not found on this server.[CRLF]
-//</BODY>
+char errorHtml[] = "<html><head><title>404 Not Found</title>\r\n</head><body><h1>%s</h1><p>Http Response Status: %d<br>Http Response Message: %s</p></body></html>";
 
 char fileTypeHtml[][maxContentTypeSize] = {".html", ".htm"};
 char fileTypePdf[][maxContentTypeSize] = {".pdf"};
@@ -80,6 +75,7 @@ int is_directory(const char *path)
     return S_ISDIR(path_stat.st_mode);
 }
 
+// Function for finding whether extension is in array of predefined arrays of content types
 int inArray(char* srcExt, char targetExt[][maxContentTypeSize], int length ){
 	for(int i=0; i<length;i++)
 		if(strcmp(srcExt, targetExt[i])==0){
@@ -89,6 +85,7 @@ int inArray(char* srcExt, char targetExt[][maxContentTypeSize], int length ){
 	return 0;		
 }
 
+// Returns content type
 //Reference : http://stackoverflow.com/questions/5309471/getting-file-extension-in-c
 void getContentType(char* filePath, char* contentType){
 	char* ext = strrchr(filePath, '.');
@@ -173,6 +170,7 @@ int getDirListing(char* buffer, char* directory, char* origDir){
 	return 1;
 }
 
+// Class for parsing request into various components such as url, protocol, method etc.
 class parsedReq{
 	public:
 		char reqType[reqLineSize], url[reqLineSize], originalUrl[reqLineSize], protocol[reqLineSize], message[reqLineSize];
@@ -258,11 +256,9 @@ int main(int argc, char* argv[]){
 	}
 
 	int sockid = socket(AF_INET,SOCK_STREAM, 0); 
-	//To handle multiple clients
-	int clientFd[maxClients];
+	int clientFd[maxClients]; //To handle multiple clients
 	int slot = 0, i;
-	//get constant server name
-	char serverName[smallBufferSize]; 
+	char serverName[smallBufferSize]; //get constant server name
 	gethostname(serverName, smallBufferSize);
 	for(i=0;i<maxClients; i++)
 		clientFd[i] = -1;
@@ -296,7 +292,7 @@ int main(int argc, char* argv[]){
 		socklen_t addrLen;
 		clientFd[slot] = accept(sockid, &clientAdd, &addrLen);
 		if( clientFd[slot] < 0){
-			printf("error in accept at slot");
+			printf("error in accept at slot %d", slot);
 			exit(0);
 		}
 		else{
@@ -317,55 +313,43 @@ int main(int argc, char* argv[]){
 					bzero(resHtml, (int)strlen(resHtml));
 					bzero(currTime, (int)strlen(currTime));
 					clientStatus = recv(newSockid, buffer, bufferSize, 0);
-					printf("Request recieved:\n--------\n%s\n-------\n", buffer);
+					printf("Request recieved:\n---------------\n%s\n-----------------\n", buffer);
 					parsedReq* pReq = new parsedReq(buffer);	
-					printf("Request Type: %s\nRequested Url: %s\nRequest Protocol: %s\nRequest Status: %d\nRequest Message: %s\n",pReq->reqType, pReq->url, pReq->protocol, pReq->stat.status, pReq->stat.msg); 
 					if(pReq->stat.status!=200){
-						printf("Unable to parse request");
 						bzero(buffer, (int)strlen(buffer));
 						//get response html
 						sprintf(resHtml, errorHtml, "Request parsing error", pReq->stat.status, pReq->stat.msg);
 						//get response time
 						getCurrTime(currTime, smallBufferSize);
-						//"HTTP/1.1 %d %s\nContent-type: %s\nContent-length: %d\n\n%s";
 						sprintf(buffer, ResponseFormat, pReq->stat.status, pReq->stat.msg, "text/html", strlen(resHtml), currTime, serverName, resHtml);
 						send(newSockid, buffer, strlen(buffer), 0);
-						printf("Response sent:\n%s",buffer);
+						printf("Response sent:\n---------------------------%s\n------------------\n",buffer);
 						continue;
 					}
-					else{
-						printf("Request successfully parsed\n");
-						printf("Request Type: %s\nRequested Url: %s\nRequest Protocol: %s\nRequest Status: %d\nRequest Message: %s\n",pReq->reqType, pReq->url, pReq->protocol, pReq->stat.status, pReq->stat.msg); 
-					}
-					//TODO: send response according to parsing error if any
+					//else{
+					//	printf("Request successfully parsed\n");
+					//	printf("Request Type: %s\nRequested Url: %s\nRequest Protocol: %s\nRequest Status: %d\nRequest Message: %s\n",pReq->reqType, pReq->url, pReq->protocol, pReq->stat.status, pReq->stat.msg); 
+					//}
+					
 					FILE* fd=NULL;
-					//char fileLocation[maxFileLocationSize];
-					//strcpy(fileLocation, cwd);
-					//strcat(fileLocation, pReq->url);
 					fd = fopen(pReq->url, "r"); 
 					printf("[DEBUG] opening url: %s \n", pReq->url);
 					if(fd==NULL){
-						printf("[DEBUG] url not found \n");
 						// File not found, send regret 
 						bzero(buffer, (int)strlen(buffer));
 						//Response html
 						sprintf(resHtml, errorHtml, "Requested file not found", 404, "Not Found");
 						//Response time
 						getCurrTime(currTime, smallBufferSize);
-						//"HTTP/1.1 %d %s\nContent-type: %s\nContent-length: %d\n\n%s";
 						sprintf(buffer, ResponseFormat, 404, "Not Found", contentTypeHtml, (int)strlen(resHtml), currTime, serverName, resHtml);
-						//n = fwrite(buffer, 1, bufferSize, socketRead);
-						//fflush(socketRead);
 						n = send(newSockid, buffer, strlen(buffer), 0);
-						printf("Response sent:\n%s\n", buffer);
+						printf("Response sent:\n---------------------------%s\n------------------\n", buffer);
 						//TODO : handle n if less than buffer size
 					}
 					else{
-						printf("[DEBUG] url found \n");
 						// File found, send contents
 						int fileSize = getFileSize(pReq->url);
 						bzero(buffer, bufferSize);
-
 						//get curr time
 						getCurrTime(currTime, smallBufferSize);
 
@@ -374,30 +358,21 @@ int main(int argc, char* argv[]){
 						if(strcmp(contentType, contentTypeDir)==0){
 							//Directory
 							int a = getDirListing(resHtml, pReq-> url, pReq->originalUrl);
-							printf("RESHTML: %s\n", resHtml);
 							sprintf(buffer, ResponseFormat, pReq->stat.status, pReq->stat.msg, contentTypeHtml, (int)strlen(resHtml), currTime, serverName, resHtml);
 							n = send(newSockid, buffer, (int)strlen(buffer), 0);
-							printf("Response sent:\n%s", buffer);
+							printf("Response sent:\n---------------------------%s\n------------------\n", buffer);
 							continue;
 						}
-						//"HTTP/1.1 %d %s\nContent-type: %s\nContent-length: %d\n\n%s";
 						sprintf(buffer, ResponseFormat, pReq->stat.status, pReq->stat.msg, contentType, fileSize, currTime, serverName, "");
 						n = send(newSockid, buffer, (int)strlen(buffer), 0);
-						printf("Response sent:\n%s", buffer);
+						printf("Response sent:\n---------------------------%s\n------------------\n", buffer);
 						//TODO : Check using n, that total number of bytes are sent.
 						
-						//bzero(buffer, bufferSize);
-						//sprintf(buffer, "%d", fileSize);
-						//n = fwrite(buffer, 1, bufferSize, socketRead);
-						//fflush(socketRead);
-
 						bzero(buffer, bufferSize); 
 						bzero(contentType, (int)strlen(contentType)); 
 						while((n=fread(buffer, 1, bufferSize, fd))>0){
 							n = send(newSockid, buffer, n, 0);
-							//printf("%s", buffer);
 							//TODO: Check using n, that total number of bytes are sent.
-							//printf("--------%s---------", buffer);
 							bzero(buffer, (int)strlen(buffer)); 
 						}
 						fclose(fd);
