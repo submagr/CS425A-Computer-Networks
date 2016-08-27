@@ -39,7 +39,7 @@ int main(int argc, char* argv[]){
 	serverAdd.sin_family = AF_INET;
 	serverAdd.sin_port=htons(port);
 	// Configure ip address of server below
-	serverAdd.sin_addr.s_addr=inet_addr("10.0.2.15");
+	serverAdd.sin_addr.s_addr=INADDR_ANY;
 	int bind_status = bind(sockid, (struct sockaddr*)&serverAdd, sizeof(serverAdd));
 	if(bind_status==0)
 		printf("bind successful\n");
