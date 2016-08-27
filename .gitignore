@@ -1,4 +1,4 @@
-.tar
+*.tar
 CSE425_VM/*
 13674*
-.swp
+*.swp
