@@ -15,8 +15,8 @@ using namespace std;
 #define maxClientsWaiting 100  // Max number of waiting clients
 #define bufferSize 9000 
 #define smallBufferSize 1000 
-#define maxForkedChilds 2
-char proxyRequestFormat[] = "GET %s HTTP/1.0\r\nHost: %s\r\n%s\r\n\r\n";
+#define maxForkedChilds 20
+char proxyRequestFormat[] = "GET %s HTTP/1.0\r\n%s";
 char defaultProxyPort[] = "80\0";
 int numForkedChild = 0;
 char errResponseFormat[] = "HTTP/1.0 %d %s\r\n\r\n";
@@ -67,10 +67,35 @@ int hostname_to_ip(char * hostname , char* ip)
     return 1;
 }
 
-void getProxyRequest(ParsedRequest* req, char* buffer){
+int getProxyRequest(ParsedRequest* req, char* buffer){
 	//TODO: Fill headers
-	snprintf(buffer, bufferSize, proxyRequestFormat, req->path, req->host, "" );
-	return;
+	
+	// Set a specific header (key) to a value. In this case,
+	//we set the "Last-Modified" key to be set to have as 
+	//value  a date in February 2014 
+
+	if(ParsedHeader_set(req, "Connection", "close") < 0){
+		printf("Set header key not work\n");
+		return -1;
+	}
+	
+	if(ParsedHeader_set(req, "Host", req->host) < 0){
+		printf("Set header key not work\n");
+		return -1;
+	}
+	// Turn the headers from the request into a string.
+	int rlen = ParsedHeader_headersLen(req);
+	char buf[rlen+1];
+	if (ParsedRequest_unparse_headers(req, buf, rlen) < 0) {
+		printf("unparse failed\n");
+		return -1;
+	}
+	buf[rlen] ='\0';
+	printf("Header String........\n%s\n.......\n", buf);
+	//print out buf for text headers only 
+	
+	snprintf(buffer, bufferSize, proxyRequestFormat, req->path, buf);
+	return 0;
 }
 
 int main(int argc, char* argv[]){
@@ -109,6 +134,7 @@ int main(int argc, char* argv[]){
 		socklen_t addrLen;
 		int newSockid = accept(sockid, &clientAdd, &addrLen);
 		// Keep waiting until
+		printf("Waiting for Some children to exit\n");
 		while(numForkedChild >= maxForkedChilds);
 		printf("Number of forked Children: %d\n", numForkedChild);
 		if(fork()==0){
@@ -147,7 +173,6 @@ int main(int argc, char* argv[]){
 			int k = hostname_to_ip(req->host, ip);
 			printf("hostname_to_ip completed\n");
 			printf("%d host: %s, port: %d, ip: %s path: %s\n", k, req->host, stoi(req->port), ip, req->path);
-			// TODO: read above from previous request. 
 			int fSockid = socket(AF_INET,SOCK_STREAM, 0); 
 			struct sockaddr_in fServerAdd;
 			fServerAdd.sin_family = AF_INET;
@@ -160,15 +185,18 @@ int main(int argc, char* argv[]){
 			}
 			else{
 				printf("Connection to host failed: %d\n ", conn_status);
+				sendError(newSockid, S500);
 				return 0;
-				//TODO: Handle
 			}
-			//TODO: Check if method is not get
 			char proxyRequest[bufferSize];	
 			bzero(proxyRequest, bufferSize);
-			getProxyRequest(req, proxyRequest);
+			if(getProxyRequest(req, proxyRequest)!= 0){
+				printf("Proxy request unable to create\n");
+				sendError(newSockid, S500);
+				return 0;
+			}
 			printf("--------Proxy sending request------\n%s\n-----------------\n", proxyRequest);
-			n = send(fSockid,proxyRequest,strlen(buffer),0);
+			n = send(fSockid,proxyRequest,strlen(proxyRequest),0);
 			printf("%d bytes sent\n", n);
 			bzero(buffer, strlen(buffer));
 			printf("Waiting from server to reply...\n");
