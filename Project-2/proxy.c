@@ -19,6 +19,23 @@ using namespace std;
 char proxyRequestFormat[] = "GET %s HTTP/1.0\r\nHost: %s\r\n%s\r\n\r\n";
 char defaultProxyPort[] = "80\0";
 int numForkedChild = 0;
+char errResponseFormat[] = "HTTP/1.0 %d %s\r\n\r\n";
+
+struct status{
+	int status;
+	char msg[1000];
+};
+typedef struct status status;
+
+status S500 = {500, "Internal Error\0"};
+
+void sendError(int sockid, status resStatus){
+	char buffer[smallBufferSize];
+	bzero(buffer, smallBufferSize);
+	snprintf(buffer, smallBufferSize, errResponseFormat, resStatus.status, resStatus.msg);
+	send(sockid, buffer, strlen(buffer),0);
+	return;
+}
 void updateNumForkedChild(int update){
 	//TODO: Make it shared and race free in parent and child
 	numForkedChild = numForkedChild + update;
@@ -108,12 +125,16 @@ int main(int argc, char* argv[]){
 			ParsedRequest *req = ParsedRequest_create();
 			if (ParsedRequest_parse(req, buffer, len) < 0) {
 				printf("Request parsing failed\n");
-				close(newSockid);
-				continue;
-				//TODO: Handle this
+				sendError(newSockid, S500);
+				return 0;
 			}
 			printf("Request parsing completed\n");
 
+			if(strcmp(req->method, "GET") != 0 ){
+				printf("Method %s not implemented\n", req->method);
+				sendError(newSockid, S500);
+				return 0;
+			}
 			if(req->port==NULL){
 				req->port = (char*)malloc(6);
 				bzero(req->port, 6);
@@ -162,6 +183,7 @@ int main(int argc, char* argv[]){
 			}
 			printf("\n-----------------\n");
 			updateNumForkedChild(-1);
+			close(newSockid);
 			return 0;
 		}
 		else{
