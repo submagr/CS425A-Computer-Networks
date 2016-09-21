@@ -101,8 +101,14 @@
 	- Api for transport layer to interact with mysocket and network layer
 	- functions: 
 		- stcp_wait_for_event:  
-		- stcp_network_recv
-		- stcp_network_send
+			- called by transport layer to wait for new data(from app or network)
+			- socket close via myclose (**TODO**: Not Clear)
+			- abs_time: time to wait, Null=> wait indefinitely until data arrives
+			- returns: a bit mask corresponding to an app data arriving/network data arriving/ close event. 
+		- stcp_network_recv: (sd, buffer ptr, maxlen) returns amount of data read in buffer
+		- stcp_network_send: (sd, ptr1, len1, ptr2, len2, ... NULL)
+		- stcp_app_recv:
+		- stcp_app_send:
 		
 ### Miscellaneous: 
 - Bit Masking: http://stackoverflow.com/questions/10493411/what-is-bit-masking. It is used when you want to send multiple flags. 
