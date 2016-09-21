@@ -18,7 +18,7 @@
 - Even if receiver is able to identify some desired packet has not arrived, is it simply lost or reordered ?
 
 ### TCP Acknowledgment Mechanism to ensure reliable delivery: 
-- Each packet sent by sendor is acknowledged by client. Sender does not send another packet until previous packet is acknowledged. 
+- Each packet sent by sender is acknowledged by client. Sender does not send another packet until previous packet is acknowledged. 
 	- Acknowledgement from receiver: Ack- Packet received. NACK- Corrupted packet received, retransmit. 
 	- Retransmission by sender: After not receiving ACK (based on timeout) or NACK received.
 - Reliable Deleivery: 
@@ -84,3 +84,25 @@
 - Network Layer Interface: stcp\_api
 - Application Layer Interface: stcp\_api
 
+### File Structur of Project:
+- transport.c:  
+	- Contain stcp layer that sits between mysocket and network layers.  
+	- I have to implement functionalities here as mentioned below: 
+		- 
+	- structures: 
+		- context_t: context of current connection    
+		
+	- functions : 
+		- transport_init(): 
+		- control_loop(): Here, implement max of event driven STCP functionalities. Use stcp_wait_for_event function. Each iteration of it should complete current set of pending events and update FSM state accordingly.  
+			- **TODO**: 
+		-  
+- stcp\_api.c or stcp\_api.h: See detailed explanation in stcp\_api.h
+	- Api for transport layer to interact with mysocket and network layer
+	- functions: 
+		- stcp_wait_for_event:  
+		- stcp_network_recv
+		- stcp_network_send
+		
+### Miscellaneous: 
+- Bit Masking: http://stackoverflow.com/questions/10493411/what-is-bit-masking. It is used when you want to send multiple flags. 
