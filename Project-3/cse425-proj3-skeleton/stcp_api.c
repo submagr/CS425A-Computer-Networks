@@ -162,7 +162,9 @@ ssize_t stcp_network_recv(mysocket_t sd, void *dst, size_t max_len)
     /* checksum should have been verified by underlying network layer in
      * this implementation.
      */
-    assert(len <= 0 ||
+	printf(">>>%d %d\n", len, _mysock_verify_checksum(_mysock_get_context(sd), dst, len));
+	// TODO: Discuss this flip <= to >=
+    assert(len >= 0 ||
            _mysock_verify_checksum(_mysock_get_context(sd), dst, len));
     return len;
 }
@@ -195,7 +197,6 @@ ssize_t stcp_network_send(mysocket_t sd, const void *src, size_t src_len, ...)
     struct tcphdr    *header;
 
     assert(ctx && src);
-
     assert(src_len <= sizeof(packet));
     memcpy(packet, src, src_len);
     packet_len = src_len;
