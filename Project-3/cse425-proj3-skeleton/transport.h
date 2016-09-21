@@ -62,6 +62,7 @@ typedef struct tcphdr
 #define TH_ACK  0x10
 #define TH_URG  0x20    /* ...or this */
     uint16_t th_win;    /* window */
+#define TH_Initial_Win 3072
     uint16_t th_sum;    /* checksum */
     uint16_t th_urp;    /* urgent pointer (unused in STCP) */
 } __attribute__ ((packed)) STCPHeader;
@@ -117,5 +118,6 @@ typedef struct tcphdr
 #endif
 
 extern void transport_init(mysocket_t sd, bool_t is_active);
+#define maxBufferSize 3072
 
 #endif  /* __TRANSPORT_H__ */
