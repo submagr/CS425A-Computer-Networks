@@ -162,7 +162,6 @@ ssize_t stcp_network_recv(mysocket_t sd, void *dst, size_t max_len)
     /* checksum should have been verified by underlying network layer in
      * this implementation.
      */
-	printf(">>>%d %d\n", len, _mysock_verify_checksum(_mysock_get_context(sd), dst, len));
 	// TODO: Discuss this flip <= to >=
     assert(len >= 0 ||
            _mysock_verify_checksum(_mysock_get_context(sd), dst, len));
