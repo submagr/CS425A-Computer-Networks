@@ -112,3 +112,5 @@
 		
 ### Miscellaneous: 
 - Bit Masking: http://stackoverflow.com/questions/10493411/what-is-bit-masking. It is used when you want to send multiple flags. 
+- 0x means hexadecimal integers
+- 
