@@ -19,9 +19,15 @@
 #include "mysock.h"
 #include "stcp_api.h"
 #include "transport.h"
+#include "network_io.h"
+#include <limits.h>
 
 
-enum { CSTATE_ESTABLISHED };    /* you should have more states */
+enum { 
+	CSTATE_ESTABLISHED, 
+	CSTATE_FIN, 
+	CSTATE_FINACK
+};    /* you should have more states */
 
 
 /* this structure is global to a mysocket descriptor */
@@ -34,6 +40,11 @@ typedef struct
 
     /* any other connection-wide global variables go here */
 	tcp_seq y_init_seq; // sender's initial sequence number
+
+	int rem_win_size;
+	int unack_bytes;
+	tcp_seq sent_seq;
+	int fin;
 } context_t;
 
 
@@ -54,6 +65,9 @@ void transport_init(mysocket_t sd, bool_t is_active)
     assert(ctx);
 
     generate_initial_seq_num(ctx);
+	ctx->sent_seq = ctx->initial_sequence_num - 1;
+	ctx->rem_win_size = TH_Initial_Win; // Set Initial window size
+	ctx->fin = 0; // 0 fin exchanged
 
     /* XXX: you should send a SYN packet here if is_active, or wait for one
      * to arrive if !is_active.  after the handshake completes, unblock the
@@ -85,12 +99,14 @@ void transport_init(mysocket_t sd, bool_t is_active)
 			//assert(synAckHeader->th_flags == (TH_SYN|TH_ACK));
 			//assert(ctx->initial_sequence_num+1 == synAckHeader->th_ack);
 			ctx->y_init_seq = synAckHeader->th_seq;
+			//ctx->y_ack_seq = synAckHeader->th_seq+1;
 			
 			// #send ack back 
 			// ##create a tcp ack packet
 			our_dprintf("Sending ack packet\n");
 			STCPHeader* ackHeader = (STCPHeader*) malloc(sizeof(STCPHeader));
-			ackHeader->th_seq	= ctx->y_init_seq+1;
+			ackHeader->th_seq	= ctx->initial_sequence_num;
+			ackHeader->th_ack	= ctx->y_init_seq+1;
 			ackHeader->th_flags = TH_ACK;
 			ackHeader->th_off = 5;
 			ackHeader->th_win = TH_Initial_Win;
@@ -124,6 +140,7 @@ void transport_init(mysocket_t sd, bool_t is_active)
 			our_dprintf("SENDING SYN ACK\n");
 			STCPHeader* synAckHeader = (STCPHeader*) malloc(sizeof(STCPHeader));
 			synAckHeader->th_seq	= ctx->initial_sequence_num;
+			synAckHeader->th_ack = ctx->y_init_seq+1;
 			synAckHeader->th_flags = TH_SYN|TH_ACK;
 			synAckHeader->th_off = 5;
 			synAckHeader->th_win = TH_Initial_Win;
@@ -183,28 +200,120 @@ static void generate_initial_seq_num(context_t *ctx)
  *   - the socket to be closed (via myclose())
  *   - a timeout
  */
+
 static void control_loop(mysocket_t sd, context_t *ctx)
 {
     assert(ctx);
     assert(!ctx->done);
 
+	char buffer[maxBufferSize];
+	unsigned int desired_event=NETWORK_DATA|APP_DATA|APP_CLOSE_REQUESTED;
     while (!ctx->done)
     {
         unsigned int event;
 
         /* see stcp_api.h or stcp_api.c for details of this function */
         /* XXX: you will need to change some of these arguments! */
-        event = stcp_wait_for_event(sd, 0, NULL);
+		our_dprintf("waiting for some event \n");
+        event = stcp_wait_for_event(sd, desired_event, NULL);
 
         /* check whether it was the network, app, or a close request */
+		bzero(buffer, maxBufferSize);
         if (event & APP_DATA)
         {
             /* the application has requested that data be sent */
             /* see stcp_app_recv() */
-        }
-
+			//Get data from application	
+			//Prepare Header for data to be sent
+			//Check available window. If data to be sent > window size
+			//send data
+			STCPHeader* dataPacket = (STCPHeader*) malloc(sizeof(STCPHeader));
+			dataPacket->th_flags = 0; // Payload packet, no flags
+			dataPacket->th_ack	= 0; // No acknowledgement, payload packet
+			dataPacket->th_seq	= ctx->sent_seq+1;
+			dataPacket->th_off = 5;
+			dataPacket->th_win = 0; // No window size, payload packet
+			assert(ctx->rem_win_size >= ctx->unack_bytes);
+			our_dprintf("stcp_app_recv: %d %d",ctx->rem_win_size, ctx->unack_bytes);
+			int appData = stcp_app_recv(sd, buffer, MIN(MAX_IP_PAYLOAD_LEN - sizeof(STCPHeader),ctx->rem_win_size - ctx->unack_bytes));
+			our_dprintf("Data from app received, Size-%d\n------------\n%s\n-----------\n", appData, buffer);
+			if(appData>0){
+				int sent = stcp_network_send(sd, dataPacket, sizeof(STCPHeader), buffer, appData, NULL);
+				assert(sent == appData + sizeof(STCPHeader)); // Assuming network layer is reliable
+				our_dprintf("Data %d sent to network\n", sent);
+				ctx->sent_seq = ctx->sent_seq + appData;
+				ctx->unack_bytes = ctx->unack_bytes + appData;
+			}else{
+				desired_event = NETWORK_DATA;
+				continue;
+			}
+        }else if(event & NETWORK_DATA){
+			int networkData = stcp_network_recv(sd, buffer, maxBufferSize);
+			our_dprintf("Data(%d) from network received\n", networkData, buffer);
+			STCPHeader* packet = (STCPHeader *)buffer;
+			//TODO: Handle this below other flags may come with TH_ACK
+			if(packet->th_flags == TH_ACK){
+				ctx->rem_win_size = packet->th_win;
+				ctx->unack_bytes = ctx->sent_seq - packet->th_ack + 1;
+				our_dprintf("\n::::::::::ACK Received: th_win = %d, ctx->sent_seq = %d, th_ack = %d, rem_win_size = %d, unack_bytes = %d\n", packet->th_win, ctx->sent_seq, packet->th_ack, ctx->rem_win_size);
+			}else if(packet->th_flags == TH_FIN){
+				our_dprintf("Fin Packet Received\n");
+				// send FIN-ACK
+				STCPHeader* finAckPacket = (STCPHeader*)malloc(sizeof(STCPHeader));
+				finAckPacket->th_flags   = TH_FIN|TH_ACK; 
+				finAckPacket->th_ack	 = 0; 
+				finAckPacket->th_seq	 = 0;
+				finAckPacket->th_off = 5;
+				finAckPacket->th_win = 0; 
+				stcp_network_send(sd, finAckPacket, sizeof(STCPHeader), NULL);
+				our_dprintf("Fin-Ack Packet Sent\n");
+				ctx->fin++;
+				if(ctx->fin>=2){
+					ctx->done = TRUE;
+					break;
+				}
+				stcp_fin_received(sd);
+				continue;
+			}else if(packet->th_flags == (TH_FIN|TH_ACK)){
+				our_dprintf("Fin Ack received\n");
+				ctx->fin++;
+				if(ctx->fin>=2){
+					ctx->done = TRUE;
+					break;
+				}
+				continue;
+			}
+			int offSet = packet->th_off * 4; 
+			if(strlen(buffer+offSet)>0){
+				stcp_app_send(sd, buffer+offSet, strlen(buffer+offSet));
+				our_dprintf("payload data(%d) sent to app \n---------\n%s\n--------\n", strlen(buffer+offSet), buffer+offSet);
+				// send acknowledgement of this data for other side
+				STCPHeader* ackPacket = (STCPHeader*)malloc(sizeof(STCPHeader));
+				ackPacket->th_flags = TH_ACK; 
+				ackPacket->th_ack	= packet->th_seq + strlen(buffer+offSet) + 1;
+				ackPacket->th_seq	= ctx->sent_seq+1; // No use, should send or not
+				ackPacket->th_off = 5;
+				ackPacket->th_win = TH_Initial_Win; 
+				int sent = stcp_network_send(sd, ackPacket, sizeof(STCPHeader), NULL);
+				our_dprintf("Ack sent\n");
+			}
+		}else if(event & APP_CLOSE_REQUESTED){
+			our_dprintf("App close demanded\n");
+			// send FIN
+			STCPHeader* finPacket = (STCPHeader*)malloc(sizeof(STCPHeader));
+			finPacket->th_flags = TH_FIN; 
+			finPacket->th_ack	= 0; 
+			finPacket->th_seq	= 0;
+			finPacket->th_off = 5;
+			finPacket->th_win = 0; 
+			stcp_network_send(sd, finPacket, sizeof(STCPHeader), NULL);
+			printf("Fin Packet Sent");
+		}
+		our_dprintf("++++++++++++++++++++One Event Completed++++++++++++++++++++\n");
+		desired_event=NETWORK_DATA|APP_DATA|APP_CLOSE_REQUESTED;
         /* etc. */
     }
+	our_dprintf("Connection Closed\n");
 }
 
 
