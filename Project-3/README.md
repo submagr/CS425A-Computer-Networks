@@ -50,6 +50,20 @@
 	- htonl: host to network long(4 bytes)
 	- Similarily, ntohl, ntohs
 	- What is the funda of long vs short, I'm still not clear, When to use them?
+- **Unsigned vs signed int**: 
+	- Unsigned uses all bits to represent number itself, hence can store larger positive values
+	- Signed uses 2's complement or Leftmost bit to represent sign of number 
+		- 2's Complement representation: leftmost bit to represent sign 0=> remaining bit decimal value is p then, it represents p. 1=> if remaining bits(N-1) decimal value is p, then it represent -(2^(N) - p)
+- **C data types**: 
+	- char: 1 byte 
+	- int : 4 bytes
+	- short: 2 bytes
+	- long int: 4 bytes
+	- long long int: 8 bytes
+	- All unsigned couterparts has same number of bytes 	
+	Also, one can see following:
+	- uint8\_t: unsigned char, uint16\_t: unsigned short, uint32\_t unsigned int and uint32\_t is unsigned long long
+- **1 Byte = 8 bits**
 
 ### TCP headers:
 - th\_off, offset: Offset in multiples of 32 bits at which data starts (should be 5 in our case as no options are being sent by packets) 
