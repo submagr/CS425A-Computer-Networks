@@ -76,40 +76,38 @@ void transport_init(mysocket_t sd, bool_t is_active)
      * if connection fails; to do so, just set errno appropriately (e.g. to
      * ECONNREFUSED, etc.) before calling the function.
      */
+	char buffer[maxBufferSize];
+	bzero(buffer, maxBufferSize);
 	if(is_active){
 		// create a tcp syn packet
-		our_dprintf("ACTIVE: \n");
-		STCPHeader* initHeader = (STCPHeader*) malloc(sizeof(STCPHeader));
-		initHeader->th_seq	= ctx->initial_sequence_num;
-		initHeader->th_flags = TH_SYN;
-		initHeader->th_off = 5;
-		initHeader->th_win = TH_Initial_Win;
+		our_dprintf("ACTIVE: Initiating Handshake\n");
+		STCPHeader* initHeader = (STCPHeader*) malloc (sizeof(STCPHeader));
+		initHeader->th_seq	   = htonl(ctx->initial_sequence_num);
+		initHeader->th_flags   = TH_SYN;
+		initHeader->th_off     = 5;
+		initHeader->th_win     = htonl(TH_Initial_Win);
 		// send packet 
 		stcp_network_send(sd, initHeader, sizeof(STCPHeader), NULL );
-		our_dprintf("SYN packet sent, wait for synAck to arrive");
+		our_dprintf("SYN packet sent, waiting for synAck to arrive\n");
 		// wait for syn-ack to arrive
 		unsigned int flag = stcp_wait_for_event(sd, NETWORK_DATA, NULL);
 		our_dprintf("SYN-ACK arrived");
 		if(flag == NETWORK_DATA){
 			// Read headers
 			// Set initial seq number of sender in context
-			char buffer[maxBufferSize];
 			stcp_network_recv(sd, buffer, maxBufferSize);
 			STCPHeader* synAckHeader = (STCPHeader*)buffer;
-			//assert(synAckHeader->th_flags == (TH_SYN|TH_ACK));
-			//assert(ctx->initial_sequence_num+1 == synAckHeader->th_ack);
-			ctx->y_init_seq = synAckHeader->th_seq;
-			//ctx->y_ack_seq = synAckHeader->th_seq+1;
+			ctx->y_init_seq = (int)ntohl(synAckHeader->th_seq);
 			
 			// #send ack back 
 			// ##create a tcp ack packet
 			our_dprintf("Sending ack packet\n");
 			STCPHeader* ackHeader = (STCPHeader*) malloc(sizeof(STCPHeader));
-			ackHeader->th_seq	= ctx->initial_sequence_num;
+			ackHeader->th_seq	= htonl(ctx->initial_sequence_num);
 			ackHeader->th_ack	= ctx->y_init_seq+1;
 			ackHeader->th_flags = TH_ACK;
-			ackHeader->th_off = 5;
-			ackHeader->th_win = TH_Initial_Win;
+			ackHeader->th_off   = 5;
+			ackHeader->th_win   = htonl(TH_Initial_Win);
 			// ##send packet 
 			our_dprintf("Sending Ack\n");
 			int sent = stcp_network_send(sd, ackHeader, sizeof(STCPHeader), NULL);
@@ -122,13 +120,12 @@ void transport_init(mysocket_t sd, bool_t is_active)
 	}else{
 		// wait for syn packet to arrive 
 		our_dprintf("PASSIVE\n");
+		our_dprintf("Waiting for Syn to arrive\n");
 		unsigned int flag = stcp_wait_for_event(sd, NETWORK_DATA, NULL );
-		our_dprintf("SYN Packet arrived\n");
 		if(flag == NETWORK_DATA){
 			// Read headers
 			// Set initial seq number of sender in context
-			our_dprintf("flag = Network data\n");
-			char buffer[maxBufferSize];
+			our_dprintf("SYN Packet arrived\n");
 			stcp_network_recv(sd, buffer, maxBufferSize);
 			our_dprintf("Read data from network layer\n");
 			STCPHeader* synHeader = (STCPHeader*)buffer;
@@ -139,11 +136,11 @@ void transport_init(mysocket_t sd, bool_t is_active)
 			// ##create a tcp syn-ack packet
 			our_dprintf("SENDING SYN ACK\n");
 			STCPHeader* synAckHeader = (STCPHeader*) malloc(sizeof(STCPHeader));
-			synAckHeader->th_seq	= ctx->initial_sequence_num;
-			synAckHeader->th_ack = ctx->y_init_seq+1;
-			synAckHeader->th_flags = TH_SYN|TH_ACK;
-			synAckHeader->th_off = 5;
-			synAckHeader->th_win = TH_Initial_Win;
+			synAckHeader->th_seq	 = htonl(ctx->initial_sequence_num);
+			synAckHeader->th_ack     = ctx->y_init_seq+1;
+			synAckHeader->th_flags   = TH_SYN|TH_ACK;
+			synAckHeader->th_off     = 5;
+			synAckHeader->th_win     = htonl(TH_Initial_Win);
 			// ##send synack packet 
 			int sent = stcp_network_send(sd, synAckHeader, sizeof(STCPHeader), NULL );
 			//TODO check sent here
@@ -152,9 +149,11 @@ void transport_init(mysocket_t sd, bool_t is_active)
 			flag = stcp_wait_for_event(sd, NETWORK_DATA, NULL );
 			if(flag == NETWORK_DATA){
 				// Read headers
-				memset(buffer, '\0', sizeof(buffer));
+				bzero(buffer, sizeof(buffer));
 				stcp_network_recv(sd, buffer, maxBufferSize);
 				STCPHeader* ackHeader = (STCPHeader*)buffer;
+				//TODO: set window size, sequence number here
+				//TODO: check if really is ack packet
 				our_dprintf("ACK ARRIVED\n");
 				//assert(ackHeader->th_flags == TH_ACK);
 				//assert(ackHeader->th_seq == ctx->initial_sequence_num+1);
