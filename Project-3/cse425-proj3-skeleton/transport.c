@@ -93,16 +93,21 @@ void transport_init(mysocket_t sd, bool_t is_active)
 		ctx->next_seq++; //First data byte is starting from isn+1
 		// send packet 
 		stcp_network_send(sd, initHeader, sizeof(STCPHeader), NULL );
-		our_dprintf("SYN packet sent, waiting for synAck to arrive\n");
 		our_dprintf("%lu %lu %d %lu\n", ctx->next_seq, ctx->ack_seq, ctx->ad_win, ctx->y_ack_seq);
+		our_dprintf("SYN packet sent, waiting for synAck to arrive\n");
 		// wait for syn-ack to arrive
-		unsigned int flag = stcp_wait_for_event(sd, NETWORK_DATA, NULL);
-		if(flag == NETWORK_DATA){
+		int flag = 0;
+		while(!flag){
+			stcp_wait_for_event(sd, NETWORK_DATA, NULL);
+			our_dprintf("some data\n");
 			// Read headers
 			// Set initial seq number of sender in context
-			our_dprintf("SYN-ACK arrived\n");
 			stcp_network_recv(sd, buffer, maxBufferSize);
 			STCPHeader* synAckHeader = (STCPHeader*)buffer;
+			if(synAckHeader->th_flags != (TH_SYN|TH_ACK))
+				continue;
+			flag = 1;	// SYN-ACK arrived. Get out of loop
+			our_dprintf("SYN-ACK arrived\n");
 			ctx->ack_seq = ntohl(synAckHeader->th_ack);
 			ctx->ad_win = ntohs(synAckHeader->th_win);
 			//our_dprintf("%lu %lu %d %d\n", synAckHeader->th_ack, synAckHeader->th_win, synAckHeader->th_ack, synAckHeader->th_win);
@@ -117,31 +122,30 @@ void transport_init(mysocket_t sd, bool_t is_active)
 			ackHeader->th_ack	= htonl(y_seq_number+1);
 			ackHeader->th_flags = TH_ACK;
 			ackHeader->th_off   = 5;
-			ackHeader->th_win   = htons(TH_Initial_Win); //TODO
+			ackHeader->th_win   = htons(TH_Initial_Win);
 			ctx->y_ack_seq = y_seq_number+1;
 			// ##send packet 
 			int sent = stcp_network_send(sd, ackHeader, sizeof(STCPHeader), NULL);
 			our_dprintf("Ack Sent\n");
 			our_dprintf("%lu %lu %d %lu\n", ctx->next_seq, ctx->ack_seq, ctx->ad_win, ctx->y_ack_seq);
-			//TODO check sent here
-			// unblock the application 
-		}else{
-			//TODO Handle errors
 		}
 	}else{
 		// wait for syn packet to arrive 
 		our_dprintf("PASSIVE\n");
 		our_dprintf("%lu %lu %d %lu\n", ctx->next_seq, ctx->ack_seq, ctx->ad_win, ctx->y_ack_seq);
 		our_dprintf("Waiting for Syn to arrive\n");
-		unsigned int flag = stcp_wait_for_event(sd, NETWORK_DATA, NULL );
-		if(flag == NETWORK_DATA){
+		int flag = 0;
+		while(!flag){
 			// Read headers
 			// Set initial seq number of sender in context
-			our_dprintf("SYN Packet arrived\n");
+			stcp_wait_for_event(sd, NETWORK_DATA, NULL );
 			stcp_network_recv(sd, buffer, maxBufferSize);
 
 			STCPHeader* synHeader = (STCPHeader*)buffer;
-			assert(synHeader->th_flags == TH_SYN);
+			our_dprintf("SYN Packet arrived\n");
+			if(synHeader->th_flags != TH_SYN)
+				continue;
+			flag=1;
 			//ctx->y_init_seq = synHeader->th_seq;	
 			int y_seq_number = synHeader->th_seq;
 
@@ -161,34 +165,30 @@ void transport_init(mysocket_t sd, bool_t is_active)
 			our_dprintf("%lu %lu %d %lu\n", ctx->next_seq, ctx->ack_seq, ctx->ad_win, ctx->y_ack_seq);
 			// ##send synack packet 
 			int sent = stcp_network_send(sd, synAckHeader, sizeof(STCPHeader), NULL );
-			//TODO check sent here
 			// #receive ack packet
 			our_dprintf("WAITING FOR ACK PACKET TO ARRIVE");
-			flag = stcp_wait_for_event(sd, NETWORK_DATA, NULL );
-			if(flag == NETWORK_DATA){
+			int flag2 = 0;
+			while(!flag2){
+				stcp_wait_for_event(sd, NETWORK_DATA, NULL );
+				our_dprintf("some data\n");
 				// Read headers
 				bzero(buffer, sizeof(buffer));
 				stcp_network_recv(sd, buffer, maxBufferSize);
-				//TODO: check if really is ack packet
 				STCPHeader* ackHeader = (STCPHeader*)buffer;
+				if(ackHeader->th_flags != TH_ACK)
+					continue;
+				flag2 = 1;
+				our_dprintf("ACK ARRIVED\n");
 				ctx->ack_seq = ntohl(ackHeader->th_ack);
 				ctx->ad_win = ntohs(ackHeader->th_win);
-				our_dprintf("ACK ARRIVED\n");
 				our_dprintf("%lu %lu %d %lu\n", ctx->next_seq, ctx->ack_seq, ctx->ad_win, ctx->y_ack_seq);
 				//assert(ackHeader->th_flags == TH_ACK);
 				//assert(ackHeader->th_seq == ctx->initial_sequence_num+1);
-			}else{
-				our_dprintf("SOME ERROR INSTEAD OF ACK ARRIVED\n");
-				//TODO handle ack packet not received here.
 			}
-			// unblock the application 
-		}else{
-			our_dprintf("SOME ERROR INSTEAD OF SYN\n");
-			//TODO Handle errors
 		}
 	}
     ctx->connection_state = CSTATE_ESTABLISHED;
-	our_dprintf("%ld %ld %d %ld", ctx->next_seq, ctx->ack_seq, ctx->ad_win, ctx->y_ack_seq);
+	our_dprintf("%ld %ld %d %ld\n", ctx->next_seq, ctx->ack_seq, ctx->ad_win, ctx->y_ack_seq);
     stcp_unblock_application(sd);
 
     control_loop(sd, ctx);
@@ -252,7 +252,7 @@ static void control_loop(mysocket_t sd, context_t *ctx)
 			dataPacket->th_ack	= htonl(ctx->y_ack_seq); // No acknowledgement, payload packet
 			dataPacket->th_seq	= htonl(ctx->next_seq);
 			dataPacket->th_off = 5;
-			dataPacket->th_win = htons(TH_Initial_Win); // TODO:This should be recvd(?) - read
+			dataPacket->th_win = htons(TH_Initial_Win); 
 			//assert(ctx->rem_win_size >= ctx->unack_bytes);
 			
 			//our_dprintf("stcp_app_recv: %d %d",ctx->rem_win_size, ctx->unack_bytes);
@@ -284,7 +284,7 @@ static void control_loop(mysocket_t sd, context_t *ctx)
 				finAckPacket->th_ack	 = htonl(ctx->y_ack_seq); 
 				finAckPacket->th_seq	 = htonl(ctx->next_seq);
 				finAckPacket->th_off     = 5;
-				finAckPacket->th_win     = htons(TH_Initial_Win); //TODO
+				finAckPacket->th_win     = htons(TH_Initial_Win);
 				stcp_network_send(sd, finAckPacket, sizeof(STCPHeader), NULL);
 				our_dprintf("Fin-Ack Packet Sent\n");
 				ctx->fin++;
@@ -322,7 +322,7 @@ static void control_loop(mysocket_t sd, context_t *ctx)
 				ackPacket->th_seq	= htonl(ctx->next_seq); 
 				ackPacket->th_ack	= htonl(MAX(ntohl(packet->th_seq) + payloadSize, ctx->y_ack_seq));
 				ackPacket->th_off = 5;
-				ackPacket->th_win = htons(TH_Initial_Win); //TODO
+				ackPacket->th_win = htons(TH_Initial_Win);
 				our_dprintf("Ack sent %d, %d\n", MAX(ntohl(packet->th_seq) + payloadSize, ctx->y_ack_seq), ctx->y_ack_seq);
 				ctx->y_ack_seq =  ntohl(ackPacket->th_ack);
 				int sent = stcp_network_send(sd, ackPacket, sizeof(STCPHeader), NULL);
