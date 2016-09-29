@@ -43,13 +43,7 @@ typedef struct
 	int	ad_win;		  // Latest advertised window size
 	int y_ack_seq;	  // Latest ack number sent (Will tell us what seq number we are expecting)
 
-	int fin;
-
-	// Redundant
-	int unack_bytes;
-	int rem_win_size; //(sender's window)
-	tcp_seq y_init_seq; // sender's initial sequence number
-	tcp_seq sent_seq; // itna seq number sent
+	int fin;		  // Fin state
 } context_t;
 
 
@@ -255,36 +249,33 @@ static void control_loop(mysocket_t sd, context_t *ctx)
 			//send data
 			STCPHeader* dataPacket = (STCPHeader*) malloc(sizeof(STCPHeader));
 			dataPacket->th_flags = 0; // Payload packet, no flags
-			dataPacket->th_ack	= htonl(ctx->ack_seq); // No acknowledgement, payload packet
+			dataPacket->th_ack	= htonl(ctx->y_ack_seq); // No acknowledgement, payload packet
 			dataPacket->th_seq	= htonl(ctx->next_seq);
 			dataPacket->th_off = 5;
 			dataPacket->th_win = htons(TH_Initial_Win); // TODO:This should be recvd(?) - read
 			//assert(ctx->rem_win_size >= ctx->unack_bytes);
 			
 			//our_dprintf("stcp_app_recv: %d %d",ctx->rem_win_size, ctx->unack_bytes);
-			int appData = stcp_app_recv(sd, buffer, MIN(MAX_IP_PAYLOAD_LEN - sizeof(STCPHeader), ctx->ad_win - (int)(ctx->next_seq - ctx->ack_seq)));
+			int appData = stcp_app_recv(sd, buffer, MIN(maxPayloadSize, ctx->ad_win - (int)(ctx->next_seq - ctx->ack_seq)));
 			our_dprintf("Data from app received, Size-%d\n------------\n%s\n-----------\n", appData, buffer);
 			if(appData>0){
 				int sent = stcp_network_send(sd, dataPacket, sizeof(STCPHeader), buffer, appData, NULL);
 				assert(sent == appData + sizeof(STCPHeader)); // Assuming network layer is reliable
 				our_dprintf("Data %d sent to network\n", sent);
-				ctx->next_seq = ctx->next_seq + appData + 1;
-			}else{
-				// Sender's window size has reduced to 0
-				desired_event = NETWORK_DATA;
-				continue;
+				ctx->next_seq = ctx->next_seq + appData;
 			}
         }
 		if(event & NETWORK_DATA){
 			int networkData = stcp_network_recv(sd, buffer, maxBufferSize);
 			our_dprintf("Data(%d) from network received\n", networkData, buffer);
 			STCPHeader* packet = (STCPHeader *)buffer;
-			//TODO: Handle this below other flags may come with TH_ACK
 			if(packet->th_flags == TH_ACK){
 				ctx->ad_win = ntohs(packet->th_win);
 				ctx->ack_seq = ntohl(packet->th_ack);
 				our_dprintf("\nACK Received: th_win = %d, th_ack = %d, ad_win_size = %d\n", ctx->ad_win, ctx->ack_seq, ctx->ad_win);
+				our_dprintf(">>> %lu %lu", ctx->next_seq, ctx->ack_seq);
 				assert(ctx->next_seq >= ctx->ack_seq );
+				continue;
 			}else if(packet->th_flags == TH_FIN){
 				our_dprintf("Fin Packet Received\n");
 				// send FIN-ACK
@@ -312,27 +303,29 @@ static void control_loop(mysocket_t sd, context_t *ctx)
 				}
 				continue;
 			}
-
 			int offSet = packet->th_off * 4; 
 			int payloadSize = networkData - offSet;
 			int early = 0;
-			if(ctx->ack_seq > ntohl(packet->th_seq)){
-				int early = ctx->ack_seq - ntohl(packet->th_seq);
-				our_dprintf("Already acknowledged data is received again. Current ack_seq = %lu, packet->th_seq = %lu, early = %d\n", ctx->ack_seq, ntohl(packet->th_seq), early);
-			}
-			if(payloadSize - early > 0){
-				stcp_app_send(sd, buffer+offSet+early, payloadSize-early);
-				our_dprintf("payload data(%d) sent to app \n---------\n%s\n--------\n", payloadSize - early, buffer+offSet+early);
+			// Send Acknowledgement
+			if(payloadSize > 0 || (payloadSize==0 && packet->th_flags != TH_ACK && packet->th_flags != TH_FIN|TH_ACK && packet->th_flags != TH_FIN)){
+				if(ctx->y_ack_seq > ntohl(packet->th_seq)){
+					int early = ctx->y_ack_seq - ntohl(packet->th_seq);
+					our_dprintf("Already acknowledged data is received again. Current y_ack_seq = %lu, packet->th_seq = %lu, early = %d\n", ctx->y_ack_seq, ntohl(packet->th_seq), early);
+				}
+				if(payloadSize - early > 0){
+					stcp_app_send(sd, buffer+offSet+early, payloadSize-early);
+					our_dprintf("payload data(%d) sent to app \n---------\n%s\n--------\n", payloadSize - early, buffer+offSet+early);
+				}
 				// send acknowledgement of this data for other side
 				STCPHeader* ackPacket = (STCPHeader*)malloc(sizeof(STCPHeader));
 				ackPacket->th_flags = TH_ACK; 
 				ackPacket->th_seq	= htonl(ctx->next_seq); 
-				ackPacket->th_ack	= htonl(ntohl(packet->th_seq) + strlen(buffer+offSet+early) + 1);
+				ackPacket->th_ack	= htonl(MAX(ntohl(packet->th_seq) + payloadSize, ctx->y_ack_seq));
 				ackPacket->th_off = 5;
 				ackPacket->th_win = htons(TH_Initial_Win); //TODO
+				our_dprintf("Ack sent %d, %d\n", MAX(ntohl(packet->th_seq) + payloadSize, ctx->y_ack_seq), ctx->y_ack_seq);
 				ctx->y_ack_seq =  ntohl(ackPacket->th_ack);
 				int sent = stcp_network_send(sd, ackPacket, sizeof(STCPHeader), NULL);
-				our_dprintf("Ack sent\n");
 			}
 		}
 		if(event & APP_CLOSE_REQUESTED){

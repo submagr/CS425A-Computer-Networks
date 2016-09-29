@@ -119,6 +119,6 @@ typedef struct tcphdr
 
 extern void transport_init(mysocket_t sd, bool_t is_active);
 #define maxBufferSize 3072
-#define maxSegmentSIze 536
+#define maxPayloadSize 536
 
 #endif  /* __TRANSPORT_H__ */
