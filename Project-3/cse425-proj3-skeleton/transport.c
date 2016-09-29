@@ -297,6 +297,7 @@ static void control_loop(mysocket_t sd, context_t *ctx)
 			}else if(packet->th_flags == (TH_FIN|TH_ACK)){
 				our_dprintf("Fin Ack received\n");
 				ctx->fin++;
+				ctx->ack_seq = MAX(ctx->ack_seq, ntohl(packet->th_ack));
 				if(ctx->fin>=2){
 					ctx->done = TRUE;
 					break;
@@ -337,6 +338,7 @@ static void control_loop(mysocket_t sd, context_t *ctx)
 			finPacket->th_seq	= htonl(ctx->next_seq);
 			finPacket->th_off = 5;
 			finPacket->th_win = htons(TH_Initial_Win); 
+			ctx->next_seq++;
 			stcp_network_send(sd, finPacket, sizeof(STCPHeader), NULL);
 			our_dprintf("Fin Packet Sent\n");
 		}
