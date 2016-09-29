@@ -65,6 +65,9 @@
 	- uint8\_t: unsigned char, uint16\_t: unsigned short, uint32\_t unsigned int and uint32\_t is unsigned long long
 - **1 Byte = 8 bits**
 
+### Precedence in C 
+- Precedence of bitwise operators (| &) **is lower** that comparision operators (== != >= <= )  
+
 ### TCP headers:
 - th\_off, offset: Offset in multiples of 32 bits at which data starts (should be 5 in our case as no options are being sent by packets) 
 - th\_win:  advertised receiver window size in bytes
