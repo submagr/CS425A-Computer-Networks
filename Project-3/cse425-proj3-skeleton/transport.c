@@ -111,7 +111,7 @@ void transport_init(mysocket_t sd, bool_t is_active)
 			ctx->ack_seq = ntohl(synAckHeader->th_ack);
 			ctx->ad_win = ntohs(synAckHeader->th_win);
 			//our_dprintf("%lu %lu %d %d\n", synAckHeader->th_ack, synAckHeader->th_win, synAckHeader->th_ack, synAckHeader->th_win);
-			int y_seq_number = synAckHeader->th_seq;
+			int y_seq_number = ntohl(synAckHeader->th_seq);
 			our_dprintf("%lu %lu %d %lu\n", ctx->next_seq, ctx->ack_seq, ctx->ad_win, ctx->y_ack_seq);
 			
 			// #send ack back 
@@ -147,7 +147,7 @@ void transport_init(mysocket_t sd, bool_t is_active)
 				continue;
 			flag=1;
 			//ctx->y_init_seq = synHeader->th_seq;	
-			int y_seq_number = synHeader->th_seq;
+			int y_seq_number = ntohl(synHeader->th_seq);
 
 			our_dprintf("%lu %lu %d %lu\n", ctx->next_seq, ctx->ack_seq, ctx->ad_win, ctx->y_ack_seq);
 			
@@ -166,7 +166,7 @@ void transport_init(mysocket_t sd, bool_t is_active)
 			// ##send synack packet 
 			int sent = stcp_network_send(sd, synAckHeader, sizeof(STCPHeader), NULL );
 			// #receive ack packet
-			our_dprintf("WAITING FOR ACK PACKET TO ARRIVE");
+			our_dprintf("WAITING FOR ACK PACKET TO ARRIVE\n");
 			int flag2 = 0;
 			while(!flag2){
 				stcp_wait_for_event(sd, NETWORK_DATA, NULL );
@@ -253,9 +253,6 @@ static void control_loop(mysocket_t sd, context_t *ctx)
 			dataPacket->th_seq	= htonl(ctx->next_seq);
 			dataPacket->th_off = 5;
 			dataPacket->th_win = htons(TH_Initial_Win); 
-			//assert(ctx->rem_win_size >= ctx->unack_bytes);
-			
-			//our_dprintf("stcp_app_recv: %d %d",ctx->rem_win_size, ctx->unack_bytes);
 			int appData = stcp_app_recv(sd, buffer, MIN(maxPayloadSize, ctx->ad_win - (int)(ctx->next_seq - ctx->ack_seq)));
 			our_dprintf("Data from app received, Size-%d\n------------\n%s\n-----------\n", appData, buffer);
 			if(appData>0){
@@ -270,40 +267,40 @@ static void control_loop(mysocket_t sd, context_t *ctx)
 			our_dprintf("Data(%d) from network received\n", networkData, buffer);
 			STCPHeader* packet = (STCPHeader *)buffer;
 			if(packet->th_flags == TH_ACK){
+				if(ctx->fin > 0){
+					// If already fin received or sent (either from client or server, it doesn't matter) Then any acknowledgement packet received will be fin-ack
+					ctx->fin++;
+					ctx->ack_seq = MAX(ctx->ack_seq, ntohl(packet->th_ack));
+					if(ctx->fin>2){
+						ctx->done = TRUE;
+						break;
+					}
+					continue;
+				}
 				ctx->ad_win = ntohs(packet->th_win);
-				ctx->ack_seq = ntohl(packet->th_ack);
+				ctx->ack_seq = MAX(ntohl(packet->th_ack), ctx->ack_seq);
 				our_dprintf("\nACK Received: th_win = %d, th_ack = %d, ad_win_size = %d\n", ctx->ad_win, ctx->ack_seq, ctx->ad_win);
 				our_dprintf(">>> %lu %lu", ctx->next_seq, ctx->ack_seq);
 				assert(ctx->next_seq >= ctx->ack_seq );
-				continue;
 			}else if(packet->th_flags == TH_FIN){
 				our_dprintf("Fin Packet Received\n");
+				ctx->fin++;
 				// send FIN-ACK
 				STCPHeader* finAckPacket = (STCPHeader*)malloc(sizeof(STCPHeader));
-				finAckPacket->th_flags   = TH_FIN|TH_ACK; 
+				finAckPacket->th_flags   = TH_ACK; 
 				finAckPacket->th_ack	 = htonl(ctx->y_ack_seq); 
 				finAckPacket->th_seq	 = htonl(ctx->next_seq);
 				finAckPacket->th_off     = 5;
 				finAckPacket->th_win     = htons(TH_Initial_Win);
 				stcp_network_send(sd, finAckPacket, sizeof(STCPHeader), NULL);
 				our_dprintf("Fin-Ack Packet Sent\n");
-				ctx->fin++;
-				if(ctx->fin>=2){
-					ctx->done = TRUE;
-					break;
-				}
 				stcp_fin_received(sd);
-				continue;
-			}else if(packet->th_flags == (TH_FIN|TH_ACK)){
-				our_dprintf("Fin Ack received\n");
-				ctx->fin++;
-				ctx->ack_seq = MAX(ctx->ack_seq, ntohl(packet->th_ack));
-				if(ctx->fin>=2){
+				if(ctx->fin>2){
 					ctx->done = TRUE;
 					break;
 				}
 				continue;
-			}
+			}			
 			int offSet = packet->th_off * 4; 
 			int payloadSize = networkData - offSet;
 			int early = 0;
@@ -339,6 +336,7 @@ static void control_loop(mysocket_t sd, context_t *ctx)
 			finPacket->th_off = 5;
 			finPacket->th_win = htons(TH_Initial_Win); 
 			ctx->next_seq++;
+			ctx->fin++;
 			stcp_network_send(sd, finPacket, sizeof(STCPHeader), NULL);
 			our_dprintf("Fin Packet Sent\n");
 		}
@@ -365,13 +363,13 @@ static void control_loop(mysocket_t sd, context_t *ctx)
  */
 void our_dprintf(const char *format,...)
 {
-    va_list argptr;
-    char buffer[1024];
+    //va_list argptr;
+    //char buffer[1024];
 
-    assert(format);
-    va_start(argptr, format);
-    vsnprintf(buffer, sizeof(buffer), format, argptr);
-    va_end(argptr);
-    fputs(buffer, stdout);
-    fflush(stdout);
+    //assert(format);
+    //va_start(argptr, format);
+    //vsnprintf(buffer, sizeof(buffer), format, argptr);
+    //va_end(argptr);
+    //fputs(buffer, stdout);
+    //fflush(stdout);
 }
