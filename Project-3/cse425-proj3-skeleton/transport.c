@@ -274,7 +274,8 @@ static void control_loop(mysocket_t sd, context_t *ctx)
 				desired_event = NETWORK_DATA;
 				continue;
 			}
-        }else if(event & NETWORK_DATA){
+        }
+		if(event & NETWORK_DATA){
 			int networkData = stcp_network_recv(sd, buffer, maxBufferSize);
 			our_dprintf("Data(%d) from network received\n", networkData, buffer);
 			STCPHeader* packet = (STCPHeader *)buffer;
@@ -333,7 +334,8 @@ static void control_loop(mysocket_t sd, context_t *ctx)
 				int sent = stcp_network_send(sd, ackPacket, sizeof(STCPHeader), NULL);
 				our_dprintf("Ack sent\n");
 			}
-		}else if(event & APP_CLOSE_REQUESTED){
+		}
+		if(event & APP_CLOSE_REQUESTED){
 			our_dprintf("App close demanded\n");
 			// send FIN
 			STCPHeader* finPacket = (STCPHeader*)malloc(sizeof(STCPHeader));
