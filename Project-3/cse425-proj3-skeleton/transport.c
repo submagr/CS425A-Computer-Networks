@@ -123,7 +123,7 @@ void transport_init(mysocket_t sd, bool_t is_active)
 			ackHeader->th_ack	= htonl(y_seq_number+1);
 			ackHeader->th_flags = TH_ACK;
 			ackHeader->th_off   = 5;
-			ackHeader->th_win   = htons(TH_Initial_Win);
+			ackHeader->th_win   = htons(TH_Initial_Win); //TODO
 			ctx->y_ack_seq = y_seq_number+1;
 			// ##send packet 
 			int sent = stcp_network_send(sd, ackHeader, sizeof(STCPHeader), NULL);
@@ -311,15 +311,17 @@ static void control_loop(mysocket_t sd, context_t *ctx)
 				}
 				continue;
 			}
+
 			int offSet = packet->th_off * 4; 
+			int payloadSize = networkData - offSet;
 			int early = 0;
 			if(ctx->ack_seq > ntohl(packet->th_seq)){
 				int early = ctx->ack_seq - ntohl(packet->th_seq);
 				our_dprintf("Already acknowledged data is received again. Current ack_seq = %lu, packet->th_seq = %lu, early = %d\n", ctx->ack_seq, ntohl(packet->th_seq), early);
 			}
-			if(strlen(buffer+offSet) - early > 0){
-				stcp_app_send(sd, buffer+offSet+early, strlen(buffer+offSet+early));
-				our_dprintf("payload data(%d) sent to app \n---------\n%s\n--------\n", strlen(buffer+offSet+early), buffer+offSet+early);
+			if(payloadSize - early > 0){
+				stcp_app_send(sd, buffer+offSet+early, payloadSize-early);
+				our_dprintf("payload data(%d) sent to app \n---------\n%s\n--------\n", payloadSize - early, buffer+offSet+early);
 				// send acknowledgement of this data for other side
 				STCPHeader* ackPacket = (STCPHeader*)malloc(sizeof(STCPHeader));
 				ackPacket->th_flags = TH_ACK; 
