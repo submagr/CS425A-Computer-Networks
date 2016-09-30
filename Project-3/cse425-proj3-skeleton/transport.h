@@ -118,7 +118,7 @@ typedef struct tcphdr
 #endif
 
 extern void transport_init(mysocket_t sd, bool_t is_active);
-#define maxBufferSize 536 // As in STCP, max packet size can be 536
+#define maxBufferSize 3072 // As in STCP, max packet size can be 536. But in actual TCP size of packet can be very large. TO make it compatible, I used max window size
 #define maxPayloadSize 516 // As in STCP, max payload size can be 536. But header size is 20 so 516
 
 #endif  /* __TRANSPORT_H__ */
