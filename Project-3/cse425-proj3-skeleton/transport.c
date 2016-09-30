@@ -156,10 +156,10 @@ void transport_init(mysocket_t sd, bool_t is_active)
 			our_dprintf("SENDING SYN ACK\n");
 			STCPHeader* synAckHeader = (STCPHeader*) malloc(sizeof(STCPHeader));
 			synAckHeader->th_seq	 = htonl(ctx->next_seq);
-			synAckHeader->th_ack     = ntohl(y_seq_number+1);
+			synAckHeader->th_ack     = htonl(y_seq_number+1);
 			synAckHeader->th_flags   = TH_SYN|TH_ACK;
 			synAckHeader->th_off     = 5;
-			synAckHeader->th_win     = ntohs(TH_Initial_Win);
+			synAckHeader->th_win     = htons(TH_Initial_Win);
 			ctx->next_seq++;
 			ctx->y_ack_seq = y_seq_number+1;
 			our_dprintf("%lu %lu %d %lu\n", ctx->next_seq, ctx->ack_seq, ctx->ad_win, ctx->y_ack_seq);
