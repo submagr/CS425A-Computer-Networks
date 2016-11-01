@@ -39,11 +39,15 @@ struct sr_if* ipInIfList(struct sr_instance* sr, uint32_t ip){
     }
 
     if_walker = sr->if_list;
-    while(if_walker->next){
-		if(if_walker->ip == ip){
-		  return if_walker;
-		}
-        if_walker = if_walker->next; 
+	Debug("ipInIfList: Received IP: \n");
+	print_addr_ip_int(ip);
+    while(if_walker){
+	  Debug("ipInIfList: interface IP: \n");
+	  print_addr_ip_int(if_walker->ip);
+	  if(if_walker->ip == ip){
+		return if_walker;
+	  }
+	  if_walker = if_walker->next; 
     }
 	return 0;
 }
@@ -113,17 +117,20 @@ void sr_handlepacket(struct sr_instance* sr,
 	printf("Packet too small to be of ethernet type\n");
 	return;
   }
-  if(ethHdr->ether_type == ethertype_arp){ /*ARP*/
-	sr_arp_hdr_t* arpHdr = ethHdr+sizeof(sr_ethernet_hdr_t);
+  uint16_t packetType = ntohs(ethHdr->ether_type);
+  if(packetType == ethertype_arp){ /*ARP*/
+	Debug("Arp Packet Recieved\n");
+	sr_arp_hdr_t* arpHdr = packet+sizeof(sr_ethernet_hdr_t);
 	/*Packet Length Check*/
 	if(len-sizeof(sr_ethernet_hdr_t) < sizeof(sr_arp_hdr_t)){
 	  printf("Packet too small to be of ARP type\n");
 	  return;
 	}
 	/*TODO: Checksum*/
-	if(arpHdr->ar_op == arp_op_request){ /*ARP Request*/
+	if(ntohs(arpHdr->ar_op) == arp_op_request){ /*ARP Request*/
+	  Debug("Arp packet type: Request\n");
 	  /*Check destination ip in ip list*/  
-	  struct sr_if* matchInterface = ip_in_if_list(sr, arpHdr->ar_tip);
+	  struct sr_if* matchInterface = ipInIfList(sr, arpHdr->ar_tip);
 	  if(matchInterface){
 		/*Send arp reply*/
 		int ethReplyLen = sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t);
@@ -135,8 +142,8 @@ void sr_handlepacket(struct sr_instance* sr,
 		memcpy(ethReply->ether_dhost, ethHdr->ether_shost, ETHER_ADDR_LEN);
 		memcpy(ethReply->ether_shost, matchInterface->addr, ETHER_ADDR_LEN);
 
-		sr_arp_hdr_t* arpReply = ethReply + sizeof(sr_arp_hdr_t);
-		arpReply->ar_op = arp_op_reply;
+		sr_arp_hdr_t* arpReply = (sr_arp_hdr_t*)((uint8_t*)ethReply + sizeof(sr_ethernet_hdr_t));
+		arpReply->ar_op = ntohs(arp_op_reply);
 		memcpy(arpReply->ar_tha, arpHdr->ar_sha, ETHER_ADDR_LEN);
 		memcpy(arpReply->ar_sha, matchInterface->addr, ETHER_ADDR_LEN);
 		arpReply->ar_tip = arpHdr->ar_sip;
@@ -146,13 +153,13 @@ void sr_handlepacket(struct sr_instance* sr,
 		print_hdrs(ethReply, ethReplyLen);
 		sr_send_packet(sr, ethReply, ethReplyLen, matchInterface->name);
 	  }else{
-		Debug("IP not found for arpr packet in if list");
+		Debug("IP not found for arpr packet in if list\n");
 		return;
 	  }
 	}else if(arpHdr->ar_op == arp_op_reply){ /*ARP Reply*/
 
 	}
-  }else if(ethHdr->ether_type == ethertype_ip){ /*IP*/
+  }else if(packetType == ethertype_ip){ /*IP*/
 
   }else{ /*Unknown packet*/
 	printf("Unknown ethertype\n");
