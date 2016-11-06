@@ -369,10 +369,14 @@ void sr_handlepacket(struct sr_instance* sr,
 		/*Assign proper headers*/
 		memcpy(ethHdr->ether_shost, forwardingInterface->addr, ETHER_ADDR_LEN);
 		ipHdr->ip_dst = forwardIp;
-		ipHdr->ip_src = forwardingInterface->ip;
+		ipHdr->ip_ttl -= 0x01;
+		ipHdr->ip_sum = 0;
+		ipHdr->ip_sum = cksum((void *)ipHdr, sizeof(sr_ip_hdr_t));
 		struct sr_arpentry* entry = sr_arpcache_lookup(&(sr->cache), forwardIp);
 		if(entry){
 		  Debug("IP found in arp cache\n");
+		  memcpy(ethHdr->ether_dhost, entry->mac, ETHER_ADDR_LEN);
+		  sr_send_packet(sr, cpyPacket, len, forwardingInterface->name);
 		}else{
 		  Debug("IP not found in arp cache\n");
 		  struct sr_arpreq* req = sr_arpcache_queuereq(&(sr->cache), forwardIp, cpyPacket, len, bestMatchedRtEntry->interface);
