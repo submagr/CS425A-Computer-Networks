@@ -30,6 +30,24 @@
 
 /* Takes ip and if list. Returns interface ptr if ip matches
  * */
+void sendIcmpPacket(uint8_t* origPacket, uint8_t type, uint8_t code){
+}
+
+void checkChecksum(void *packet, int type ){
+  if(type == 1){ /*IP*/
+	Debug("Checking IP packet checksum\n");
+	sr_ip_hdr_t* ipHdr = (sr_ip_hdr_t *)((uint8_t *)packet + sizeof(sr_ethernet_hdr_t));
+	uint16_t oldSum = ipHdr->ip_sum;
+	ipHdr->ip_sum = 0;
+	uint16_t newSum = cksum((void *)ipHdr, sizeof(sr_ip_hdr_t));
+	Debug("new %d, old %d\n", newSum, oldSum);
+	assert(newSum == oldSum);
+	Debug("IP packet checksum correct\n");
+	ipHdr->ip_sum = htons(newSum);
+	return;
+  }
+}
+
 struct sr_if* ipInIfList(struct sr_instance* sr, uint32_t ip){
     struct sr_if* if_walker = 0;
     if(sr->if_list == 0){
@@ -131,7 +149,7 @@ void handle_arpreq(struct sr_instance* sr, struct sr_arpreq* req){
   if(difftime(now, req->sent) > 1.0){
 	if(req->times_sent >= 5){
 	  Debug("Request sent more than 5 times\n");
-	  /*icmp error => destroy req*/
+	  /*TODO: icmp error => destroy req*/
 	}else{
 	  /**send arp request**/
 	  Debug("Sending Arp request\n");
@@ -198,7 +216,7 @@ void sr_handlepacket(struct sr_instance* sr,
   uint8_t* cpyPacket = (uint8_t*)malloc(len);
   memcpy(cpyPacket, packet, len);
   printf("*** -> Received packet of length %d\n",len);
-  sr_ethernet_hdr_t* ethHdr = packet;
+  sr_ethernet_hdr_t* ethHdr = cpyPacket;
   if(len < sizeof(sr_ethernet_hdr_t)){
 	printf("Packet too small to be of ethernet type\n");
 	return;
@@ -206,15 +224,16 @@ void sr_handlepacket(struct sr_instance* sr,
   uint16_t packetType = ntohs(ethHdr->ether_type);
   if(packetType == ethertype_arp){ /*ARP*/
 	Debug("Arp Packet Recieved\n");
-	sr_arp_hdr_t* arpHdr = packet+sizeof(sr_ethernet_hdr_t);
+	sr_arp_hdr_t* arpHdr = cpyPacket+sizeof(sr_ethernet_hdr_t);
 	/*Packet Length Check*/
 	if(len-sizeof(sr_ethernet_hdr_t) < sizeof(sr_arp_hdr_t)){
 	  printf("Packet too small to be of ARP type\n");
 	  return;
 	}
-	/*TODO: Checksum*/
-	if(ntohs(arpHdr->ar_op) == arp_op_request){ /*ARP Request*/
-	  Debug("Arp packet type: Request\n");
+	enum sr_arp_opcode arpType = ntohs(arpHdr->ar_op);
+	if(arpType == arp_op_request){ /*ARP Request*/
+	  Debug("Arp packet type: Request:\n");
+	  print_hdrs(cpyPacket, len);
 	  /*Check destination ip in ip list*/  
 	  struct sr_if* matchInterface = ipInIfList(sr, arpHdr->ar_tip);
 	  if(matchInterface){
@@ -233,14 +252,39 @@ void sr_handlepacket(struct sr_instance* sr,
 		arpReply->ar_tip = arpHdr->ar_sip;
 		arpReply->ar_sip = matchInterface->ip;
 
-		sr_send_packet(sr, ethReply, ethReplyLen, matchInterface->name);
-		Debug("Arp Reply Sent\n");
+		sr_send_packet(sr, ethReply, ethReplyLen, interface);
+		Debug("Arp Reply Sent:\n");
+		print_hdrs(ethReply, ethReplyLen);
 	  }else{
 		Debug("IP not found for arpr packet in if list\n");
 		return;
 	  }
-	}else if(arpHdr->ar_op == arp_op_reply){ /*ARP Reply*/
-	  Debug("ARP Reply\n");  
+	}else if(arpType == arp_op_reply){ /*ARP Reply*/
+	  Debug("ARP Reply:\n");  
+	  print_hdrs(cpyPacket, len);
+	  uint32_t tip = arpHdr->ar_tip;
+	  uint32_t sip = arpHdr->ar_sip;
+	  struct sr_if *foundInterface = ipInIfList(sr, tip);
+	  if(!foundInterface){
+		Debug("Fraud Arp reply. tip not listed in interface list");
+		return;
+	  }
+	  struct sr_arpreq *req = sr_arpcache_insert(&(sr->cache), arpHdr->ar_sha, sip);
+	  if(req){
+		struct sr_packet *waitingPacket = req->packets;
+		Debug("Sending packets waiting for arp reply\n");
+		int count = 0;
+		while(waitingPacket){
+		  sr_ethernet_hdr_t *wpEthHdr = (sr_ethernet_hdr_t *)waitingPacket->buf;
+		  memcpy(wpEthHdr->ether_dhost, arpHdr->ar_sha, ETHER_ADDR_LEN);
+		  Debug("Sending Packet %d\n", count);
+		  print_hdrs(waitingPacket->buf, waitingPacket->len);
+		  Debug("%s\n", waitingPacket->iface);
+		  sr_send_packet(sr, waitingPacket->buf, waitingPacket->len, waitingPacket->iface);
+		  waitingPacket = waitingPacket->next;
+		}
+		sr_arpreq_destroy(&(sr->cache), req);
+	  }
 	}else{
 	  Debug("Unknown arp packet type\n");  
 	}
@@ -252,27 +296,86 @@ void sr_handlepacket(struct sr_instance* sr,
 	  return;
 	}
 	sr_ip_hdr_t* ipHdr = (sr_ip_hdr_t*)(cpyPacket+sizeof(sr_ethernet_hdr_t));
-	/*TODO:Checksum*/
-	ipHdr->ip_ttl -= 1;
-	/*TODO: Recompute Checksum*/
+	/*Verify checksum without changing it*/
+	checkChecksum(cpyPacket, 1);
+  
+	/*ipHdr->ip_ttl -= 0x01;*/
+	if(ipHdr->ip_ttl == 0x00){
+	  /*Send ICMP echo reply*/
+	  /*Swap source and destination address in ethHdr*/
+
+	  /*Debug("TTL 0, sending ICMP echo reply\n");                             */
+	  /*uint8_t *cpyShost = (uint8_t *)malloc(ETHER_ADDR_LEN);                 */
+	  /*memcpy(cpyShost, ethHdr->ether_shost, ETHER_ADDR_LEN);                 */
+	  /*memcpy(ethHdr->ether_shost, ethHdr->ether_dhost, ETHER_ADDR_LEN);      */
+	  /*memcpy(ethHdr->ether_dhost, cpyShost, ETHER_ADDR_LEN);                 */
+	  /*free(cpyShost);                                                        */
+	  /*uint32_t newSrcIp = ipInIfList(sr, ipHdr->ip_dst)->ip;                 */
+	  /*ipHdr->ip_dst = ipHdr->ip_src;                                         */
+	  /*ipHdr->ip_src = newSrcIp;                                              */
+
+	  /*Assign new src and dest ips*/
+	  /*Assign ICMP headers*/
+	    
+	  /*sendIcmpPacket(cpyPacket, 11, 0);*/
+	}
 	/*Check if packet directed for router*/
 	struct sr_if* matchInterface = ipInIfList(sr, ipHdr->ip_dst);
 	if(matchInterface){ /*Packet for router*/
 	  Debug("Packet for router\n");
+	  if(ipHdr->ip_p == ip_protocol_icmp){
+		/*ICMP packet*/
+		Debug("ICMP Packet\n");
+		sr_icmp_hdr_t *icmpHdr = (sr_icmp_hdr_t *)(cpyPacket + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
+		if(icmpHdr->icmp_type  == 8){
+		  Debug("ICMP Echo Request\n");
+		  uint8_t *tempShost = (uint8_t *)malloc(ETHER_ADDR_LEN);
+		  memcpy(tempShost, ethHdr->ether_dhost, ETHER_ADDR_LEN);
+		  memcpy(ethHdr->ether_dhost, ethHdr->ether_shost, ETHER_ADDR_LEN);
+		  memcpy(ethHdr->ether_shost, tempShost, ETHER_ADDR_LEN);
+		  struct sr_if* packetInterface = sr_get_interface(sr, interface);
+		  if(packetInterface){
+			ipHdr->ip_dst = ipHdr->ip_src;
+			ipHdr->ip_src = matchInterface->ip;
+			/*Recomputer IP Checksum*/
+			ipHdr->ip_sum = 0;
+			ipHdr->ip_sum = cksum((void *)ipHdr, sizeof(sr_ip_hdr_t));
+
+			icmpHdr->icmp_type = 0;
+			icmpHdr->icmp_code = 0;
+			icmpHdr->icmp_sum = 0;
+			icmpHdr->icmp_sum = cksum((void *)icmpHdr, ntohs(ipHdr->ip_len) - sizeof(sr_ip_hdr_t));
+			Debug("Sending ICMP Echo Reply\n");
+			print_hdrs(cpyPacket, len);
+			sr_send_packet(sr, cpyPacket, len, packetInterface->name);
+		  }else{
+			Debug("Unable to find interface of packet");
+		  }
+		}
+		else{
+		  Debug("ICMP some other type\n");
+		}
+	  }else{
+		  /*Packet not ICMP*/
+		  Debug("Packet not ICMP\n");
+	  }	
 	}else{ /*Packet to be forwarded*/
 	  Debug("Packet to be forwarded\n");
-	  struct sr_rt* bestMatchedEntry = longestPrefixMatch(sr->routing_table, ipHdr->ip_dst);
-	  if(bestMatchedEntry){ /*Matching entry found in routing table*/
+	  struct sr_rt* bestMatchedRtEntry = longestPrefixMatch(sr->routing_table, ipHdr->ip_dst);
+	  if(bestMatchedRtEntry){ /*Matching entry found in routing table*/
 		Debug("Matching entry found in routing table\n");
-		uint32_t forwardIp = bestMatchedEntry->dest.s_addr;
+		uint32_t forwardIp = (bestMatchedRtEntry->gw).s_addr;
+		struct sr_if *forwardingInterface = sr_get_interface(sr, bestMatchedRtEntry->interface);
+		/*Assign proper headers*/
+		memcpy(ethHdr->ether_shost, forwardingInterface->addr, ETHER_ADDR_LEN);
+		ipHdr->ip_dst = forwardIp;
+		ipHdr->ip_src = forwardingInterface->ip;
 		struct sr_arpentry* entry = sr_arpcache_lookup(&(sr->cache), forwardIp);
 		if(entry){
 		  Debug("IP found in arp cache\n");
 		}else{
-		  Debug("ip not found in arp cache\n");
-		  char* bestMatchedEntryIface = (char*)malloc(sr_IFACE_NAMELEN);
-		  memcpy(bestMatchedEntryIface, bestMatchedEntry->interface, sr_IFACE_NAMELEN);
-		  struct sr_arpreq* req = sr_arpcache_queuereq(&(sr->cache), forwardIp, cpyPacket, len, bestMatchedEntryIface);
+		  Debug("IP not found in arp cache\n");
+		  struct sr_arpreq* req = sr_arpcache_queuereq(&(sr->cache), forwardIp, cpyPacket, len, bestMatchedRtEntry->interface);
 		  handle_arpreq(sr, req);
 		}
 	  }else{ /*No matching entry found in router*/
@@ -284,4 +387,3 @@ void sr_handlepacket(struct sr_instance* sr,
 	return;
   }
 }/* -- sr_handlepacket -- */
-
