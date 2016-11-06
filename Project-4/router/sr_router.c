@@ -30,7 +30,49 @@
 
 /* Takes ip and if list. Returns interface ptr if ip matches
  * */
-void sendIcmpPacket(uint8_t* origPacket, uint8_t type, uint8_t code){
+void sendIcmpPacketType3(uint8_t* oldPacket, int code, struct sr_instance* sr, char* interface){
+  sr_ethernet_hdr_t *ethHdr = (sr_ethernet_hdr_t *)oldPacket;
+  sr_ip_hdr_t *ipHdr = (sr_ip_hdr_t *)(oldPacket+sizeof(sr_ethernet_hdr_t));
+
+  int newPacketLen = sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t);  
+  uint8_t *newPacket = (uint8_t *)malloc(newPacketLen);
+  /*Len of packet (excluding ethernet header) = iphdr 20 + icmp header 8 + iphdr 20 + 8(64bit data)*/
+
+  sr_ethernet_hdr_t *newEthHdr = (sr_ethernet_hdr_t *)newPacket;
+  memcpy(newEthHdr, ethHdr, sizeof(sr_ethernet_hdr_t));
+  uint8_t  *tempShost = (uint8_t *)malloc(ETHER_ADDR_LEN);
+  memcpy(tempShost, newEthHdr->ether_dhost, ETHER_ADDR_LEN);
+  memcpy(newEthHdr->ether_dhost, newEthHdr->ether_shost, ETHER_ADDR_LEN);
+  memcpy(newEthHdr->ether_shost, tempShost,  ETHER_ADDR_LEN);
+
+  sr_ip_hdr_t *newIpHdr = (sr_ip_hdr_t *)(newPacket+sizeof(sr_ethernet_hdr_t));
+  memcpy(newIpHdr, ipHdr, sizeof(sr_ip_hdr_t));
+  struct sr_if *packetInterface = sr_get_interface(sr, interface);
+  newIpHdr->ip_dst = newIpHdr->ip_src;
+  newIpHdr->ip_src = packetInterface->ip;
+  newIpHdr->ip_p = 0x01;
+  newIpHdr->ip_ttl = 64;
+  newIpHdr->ip_len = htons(sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t));
+  newIpHdr->ip_sum = 0;
+  newIpHdr->ip_sum = cksum((void *)newIpHdr, sizeof(sr_ip_hdr_t));
+  
+  sr_icmp_t3_hdr_t *newIcmpHdr = (sr_icmp_t3_hdr_t *)(newPacket + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
+  newIcmpHdr->icmp_type = 3;
+  newIcmpHdr->icmp_code = (uint8_t)code;
+  if(code == 11){
+	newIcmpHdr->icmp_type = 11;
+	newIcmpHdr->icmp_code = 0;
+  }
+  newIcmpHdr->unused = 0;
+  newIcmpHdr->next_mtu = 0;
+  memcpy(newIcmpHdr->data, ipHdr, sizeof(sr_ip_hdr_t));
+  memcpy(newIcmpHdr->data + sizeof(sr_ip_hdr_t), (uint8_t *)ipHdr + sizeof(sr_ip_hdr_t) ,8);
+  newIcmpHdr->icmp_sum = 0;
+  newIcmpHdr->icmp_sum = cksum((void *)newIcmpHdr, sizeof(sr_icmp_t3_hdr_t));
+
+  Debug("Sending icmp type 3 code 0 packet\n");
+  print_hdrs(newPacket, newPacketLen);
+  sr_send_packet(sr, newPacket, newPacketLen, packetInterface->name);
 }
 
 void checkChecksum(void *packet, int type ){
@@ -80,8 +122,23 @@ int longestPrefixMatchHelper(struct sr_rt* rtEntry, uint32_t ip){
   return bitsMatched;
 }
 
+int newLongestPrefixMatchHelper(struct sr_rt* rtEntry, uint32_t ip){
+  uint32_t mask = rtEntry->mask.s_addr;
+  int bitsMatched = 0;
+  int bitPosition = 0;
+  while(bitPosition <= 31){
+	if((mask & ((uint32_t)(1<<bitPosition))) == (uint32_t)0){
+	  bitsMatched+=1;
+	  bitPosition+=1;
+	}else{
+	  break;
+	}
+  }
+  return 32 - bitsMatched;
+}
 struct sr_rt* longestPrefixMatch(struct sr_rt* routing_table, uint32_t ip){ 
   int maxBytesMatched = 0;
+  int longestPrefixLengthMatched = 0;
   struct sr_rt* bestMatchedEntry;
   if(routing_table == 0){
 	Debug("Routing Table empty\n");
@@ -89,14 +146,26 @@ struct sr_rt* longestPrefixMatch(struct sr_rt* routing_table, uint32_t ip){
   }
   struct sr_rt* rtEntry = routing_table;
   while(rtEntry){
-	int bytesMatched = longestPrefixMatchHelper(rtEntry, ip);
-	if(bytesMatched > maxBytesMatched){
-	  maxBytesMatched = bytesMatched;
-	  bestMatchedEntry = rtEntry;
+	/*int bytesMatched = longestPrefixMatchHelper(rtEntry, ip);*/
+	/*if(bytesMatched > maxBytesMatched){                      */
+	/*  maxBytesMatched = bytesMatched;                        */
+	/*  bestMatchedEntry = rtEntry;                            */
+	/*}                                                        */
+	/*rtEntry = rtEntry->next;                                 */
+	uint32_t prefix = (rtEntry->mask.s_addr)&(rtEntry->dest.s_addr);
+	uint32_t ipPrefix = (rtEntry->mask.s_addr)&(ip);
+	if(prefix == ipPrefix){
+	  int prefixLength = newLongestPrefixMatchHelper(rtEntry, ip);
+	  if(prefixLength > longestPrefixLengthMatched ){
+		longestPrefixLengthMatched = prefixLength;
+		bestMatchedEntry = rtEntry;
+	  }
 	}
 	rtEntry = rtEntry->next;
   }
-  if(maxBytesMatched)
+  Debug("longestPrefixLengthMatched %d\n", longestPrefixLengthMatched);
+  /*if(maxBytesMatched)*/
+  if(longestPrefixLengthMatched)
 	return bestMatchedEntry;
   else
 	return 0;
@@ -149,7 +218,24 @@ void handle_arpreq(struct sr_instance* sr, struct sr_arpreq* req){
   if(difftime(now, req->sent) > 1.0){
 	if(req->times_sent >= 5){
 	  Debug("Request sent more than 5 times\n");
-	  /*TODO: icmp error => destroy req*/
+	  /*TODO: icmp error => destroy req
+	   *
+		   send icmp host unreachable to source addr of all pkts waiting
+			 on this request
+		   arpreq_destroy(req)
+	   * */
+	  struct sr_packet *waitingPacket = req->packets;
+	  Debug("Sending icmp error for packets waiting for arp reply\n");
+	  int count = 0;
+	  while(waitingPacket){
+		Debug("Sending Packet %d\n", count);
+		sr_ip_hdr_t *waintingIpHdr = (sr_ip_hdr_t *)(waitingPacket->buf + sizeof(sr_ethernet_hdr_t));
+		struct sr_rt *entry = longestPrefixMatch(sr->routing_table, waintingIpHdr->ip_src);
+		sendIcmpPacketType3(waitingPacket->buf, 1, sr, entry->interface);
+		waitingPacket = waitingPacket->next;
+		count += 1;
+	  }
+	  sr_arpreq_destroy(&(sr->cache), req);
 	}else{
 	  /**send arp request**/
 	  Debug("Sending Arp request\n");
@@ -299,7 +385,7 @@ void sr_handlepacket(struct sr_instance* sr,
 	/*Verify checksum without changing it*/
 	checkChecksum(cpyPacket, 1);
   
-	/*ipHdr->ip_ttl -= 0x01;*/
+	ipHdr->ip_ttl -= 0x01;
 	if(ipHdr->ip_ttl == 0x00){
 	  /*Send ICMP echo reply*/
 	  /*Swap source and destination address in ethHdr*/
@@ -317,7 +403,7 @@ void sr_handlepacket(struct sr_instance* sr,
 	  /*Assign new src and dest ips*/
 	  /*Assign ICMP headers*/
 	    
-	  /*sendIcmpPacket(cpyPacket, 11, 0);*/
+	  sendIcmpPacketType3(cpyPacket, 11, sr, interface);
 	}
 	/*Check if packet directed for router*/
 	struct sr_if* matchInterface = ipInIfList(sr, ipHdr->ip_dst);
@@ -358,18 +444,18 @@ void sr_handlepacket(struct sr_instance* sr,
 	  }else{
 		  /*Packet not ICMP*/
 		  Debug("Packet not ICMP\n");
+		  sendIcmpPacketType3(cpyPacket, 3, sr, interface);
 	  }	
 	}else{ /*Packet to be forwarded*/
 	  Debug("Packet to be forwarded\n");
 	  struct sr_rt* bestMatchedRtEntry = longestPrefixMatch(sr->routing_table, ipHdr->ip_dst);
 	  if(bestMatchedRtEntry){ /*Matching entry found in routing table*/
-		Debug("Matching entry found in routing table\n");
+		Debug("Matching entry found in routing table \n");
 		uint32_t forwardIp = (bestMatchedRtEntry->gw).s_addr;
 		struct sr_if *forwardingInterface = sr_get_interface(sr, bestMatchedRtEntry->interface);
 		/*Assign proper headers*/
 		memcpy(ethHdr->ether_shost, forwardingInterface->addr, ETHER_ADDR_LEN);
 		ipHdr->ip_dst = forwardIp;
-		ipHdr->ip_ttl -= 0x01;
 		ipHdr->ip_sum = 0;
 		ipHdr->ip_sum = cksum((void *)ipHdr, sizeof(sr_ip_hdr_t));
 		struct sr_arpentry* entry = sr_arpcache_lookup(&(sr->cache), forwardIp);
@@ -383,7 +469,9 @@ void sr_handlepacket(struct sr_instance* sr,
 		  handle_arpreq(sr, req);
 		}
 	  }else{ /*No matching entry found in router*/
-		/*TODO: send type 3 code 0 icmp*/
+		Debug("No matching entry found in router");
+		/*send type 3 code 0 icmp*/
+		sendIcmpPacketType3(cpyPacket, 0, sr, interface);
 	  }
 	}
   }else{ /*Unknown packet*/
