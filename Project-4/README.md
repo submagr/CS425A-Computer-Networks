@@ -1,4 +1,7 @@
-#Project-4 Link Layer, Router, Packet Forwading, ARP-ICMP Protocols
+#Project-4 
+- Router: Handle routing table, sending and receiving arp requests/reply
+- Packet Forwading 
+- ARP-ICMP Protocols
 
 ## Author
 - Name: Shubham Agrawal
