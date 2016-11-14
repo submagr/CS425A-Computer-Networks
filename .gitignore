@@ -1,5 +1,11 @@
 *.tar
 CSE425_VM/*
 13674*
+*.o
+*.pyo
+*.d
 *.swp
 Assignment\ 2/Release/Agrawal_Shubham__13674_p1/
+nohup.out
+sr
+*.swo
