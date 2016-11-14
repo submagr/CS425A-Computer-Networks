@@ -1,0 +1,547 @@
+\documentclass[11pt,a4paper,titlepage]{article}
+\usepackage[a4paper]{geometry}
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\usepackage{lipsum}
+
+\usepackage{amsmath, amssymb, amsfonts, amsthm, fouriernc, mathtools}
+% mathtools for: Aboxed (put box on last equation in align envirenment)
+\usepackage{microtype} %improves the spacing between words and letters
+
+\usepackage{graphicx}
+\graphicspath{ {./pics/} {./eps/}}
+\usepackage{epsfig}
+\usepackage{epstopdf}
+\usepackage{listings}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% COLOR DEFINITIONS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\usepackage[svgnames]{xcolor} % Enabling mixing colors and color's call by 'svgnames'
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\definecolor{MyColor1}{rgb}{0.2,0.4,0.6} %mix personal color
+\newcommand{\textb}{\color{Black} \usefont{OT1}{lmss}{m}{n}}
+\newcommand{\blue}{\color{MyColor1} \usefont{OT1}{lmss}{m}{n}}
+\newcommand{\blueb}{\color{MyColor1} \usefont{OT1}{lmss}{b}{n}}
+\newcommand{\red}{\color{LightCoral} \usefont{OT1}{lmss}{m}{n}}
+\newcommand{\green}{\color{Turquoise} \usefont{OT1}{lmss}{m}{n}}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% FONTS AND COLORS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%    SECTIONS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\usepackage{titlesec}
+\usepackage{sectsty}
+%%%%%%%%%%%%%%%%%%%%%%%%
+%set section/subsections HEADINGS font and color
+\sectionfont{\color{MyColor1}}  % sets colour of sections
+\subsectionfont{\color{MyColor1}}  % sets colour of sections
+
+%set section enumerator to arabic number (see footnotes markings alternatives)
+\renewcommand\thesection{\arabic{section}.} %define sections numbering
+\renewcommand\thesubsection{\thesection\arabic{subsection}} %subsec.num.
+
+%define new section style
+\newcommand{\mysection}{
+\titleformat{\section} [runin] {\usefont{OT1}{lmss}{b}{n}\color{MyColor1}} 
+{\thesection} {3pt} {} } 
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%		CAPTIONS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{hyperref}
+\usepackage[export]{adjustbox}
+%%%%%%%%%%%%%%%%%%%%%%%%
+\captionsetup[figure]{labelfont={color=Turquoise}}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%		!!!EQUATION (ARRAY) --> USING ALIGN INSTEAD
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%using amsmath package to redefine eq. numeration (1.1, 1.2, ...) 
+%%%%%%%%%%%%%%%%%%%%%%%%
+\renewcommand{\theequation}{\thesection\arabic{equation}}
+
+%set box background to grey in align environment 
+\usepackage{etoolbox}% http://ctan.org/pkg/etoolbox
+\makeatletter
+\patchcmd{\@Aboxed}{\boxed{#1#2}}{\colorbox{black!15}{$#1#2$}}{}{}%
+\patchcmd{\@boxed}{\boxed{#1#2}}{\colorbox{black!15}{$#1#2$}}{}{}%
+\makeatother
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% DESIGN CIRCUITS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\usepackage[siunitx, american, smartlabels, cute inductors, europeanvoltages]{circuitikz}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+
+\makeatletter
+\let\reftagform@=\tagform@
+\def\tagform@#1{\maketag@@@{(\ignorespaces\textcolor{red}{#1}\unskip\@@italiccorr)}}
+\renewcommand{\eqref}[1]{\textup{\reftagform@{\ref{#1}}}}
+\makeatother
+\usepackage{hyperref}
+\usepackage{float}
+\hypersetup{colorlinks=false}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% PREPARE TITLE
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\title{\blue CS$425$: Computer Networks \\
+\blueb Project-$5$: Internet Measurements}
+\author{Shubham Agrawal \\
+13674, \href{mailto:agshubh191@gmail.com}{agshubh191@gmail.com}}
+\date{\today}
+%%%%%%%%xgvim%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+
+\begin{document}
+\maketitle
+\section{Traffic Measurement}
+\subsection{Average Packet Size in Trace}
+Average Packet size : 405.860461949. For each record i in table, I divided total bytes transferred (records[i][“doctets”]) by total number of packets (records[i][“dpkts”]). This will give me average flow for that record as avgFlow[i]. I computed avgFlow for every record i and took average. 
+
+\subsection{CCDF Plots of flow durations and flow sizes}
+\begin{figure}[H]
+\centering
+\begin{subfigure}{.5\textwidth}
+  \centering
+  \includegraphics[width=\linewidth]{CCDF-Duration-Linear.png}
+  \caption{Linear Scale}
+  \label{fig:sub1}
+\end{subfigure}%
+\begin{subfigure}{.5\textwidth}
+  \centering
+  \includegraphics[width=\linewidth]{CCDF-Duration-Log.png}
+  \caption{Log scale on both axes}
+  \label{fig:sub2}
+\end{subfigure}
+\caption{CCDF of Duration (in seconds) vs Number of records}
+\label{fig:test}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\begin{subfigure}{.5\textwidth}
+  \centering
+  \includegraphics[width=\linewidth]{CCDF-Flow-Size-Bytes-Linear.png}
+  \caption{Linear Scale}
+  \label{fig:sub1}
+\end{subfigure}%
+\begin{subfigure}{.5\textwidth}
+  \centering
+  \includegraphics[width=\linewidth]{CCDF-Flow-Size-Bytes-Log.png}
+  \caption{Log scale on both axes}
+  \label{fig:sub2}
+\end{subfigure}
+\caption{CCDF-Flow of flow-Size in terms of number of bytes transferred}
+\label{fig:test}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\begin{subfigure}{.5\textwidth}
+  \centering
+  \includegraphics[width=\linewidth]{CCDF-Flow-Size-Packets-Linear.png}
+  \caption{Linear Scale}
+  \label{fig:sub1}
+\end{subfigure}%
+\begin{subfigure}{.5\textwidth}
+  \centering
+  \includegraphics[width=\linewidth]{CCDF-Flow-Size-Packets-Log.png}
+  \caption{Log scale on both axes}
+  \label{fig:sub2}
+\end{subfigure}
+\caption{CCDF of Duration (in seconds) vs Number of records}
+\label{fig:test}
+\end{figure}
+What are the main features of
+the graphs? 
+What artifacts of Netflow and of network protocols could be responsible for
+these features?
+Why is it useful to plot on a logarithmic scale?
+32897-33059	unassigned
+
+\subsection{Common Port Numbers}
+
+\begin{table}[H]
+	\centering
+	\begin{tabular}{ |c|c|l| } 
+		\hline
+		\textbf{Port} & \textbf{Traffic percentage} & \textbf{Description} \\ \hline
+		80      & 43.939    & Hypertext Transfer Protocol (HTTP) \\ \hline
+		33001   & 7.3627    & Unassigned \\ \hline 
+		1935    & 3.6642    & Macromedia Flash Communications Server MX\\ \hline
+		22      & 2.1682    & SSH \\ \hline
+		443     & 1.7256    & Hypertext Transfer Protocol over TLS/SSL (HTTPS)\\ \hline
+		55000   & 1.6235    & \\ \hline
+		388     & 1.3387    & \\ \hline
+		16402   & 0.7621    & Real-time Transport Protocol (RTP)\\ \hline
+		20      & 0.6717    & File Transfer Protocol (FTP) data transfer\\ \hline
+		0       & 0.6354    & Reserved \\ \hline
+	\end{tabular}
+	\caption{Top ten source IP ports, volume of traffic and description}
+\end{table}
+
+
+
+\begin{table}[H]
+	\centering
+	\begin{tabular}{ |c|c|l| } 
+		 \hline
+		\textbf{Port} & \textbf{Traffic percentage} & \textbf{Description} \\ \hline
+		33002   & 4.0248    & \\ \hline
+		80      & 2.9274    & Hypertext Transfer Protocol (HTTP) \\ \hline
+		49385   & 2.0916    & \\ \hline
+		62269   & 1.2293    & \\ \hline
+		443     & 0.7741    & Hypertext Transfer Protocol over TLS/SSL (HTTPS)\\ \hline
+		43132   & 0.7630    & \\ \hline
+		16402   & 0.7428    & Real-time Transport Protocol (RTP)\\ \hline
+		22      & 0.6483    & SSH \\ \hline
+		5500    & 0.6477    & VNC remote desktop protocol \\ \hline
+		0       & 0.6108    & Reserved \\ \hline
+	\end{tabular}
+	\caption{Top ten destination IP ports, volume of traffic and description}	
+\end{table}
+
+Explain any significant differences between the results for sender vs. receiver port numbers ? 
+
+\subsection{Traffic volumes based on the source IP prefix}
+
+
+\begin{table}[H]
+	\centering
+	\begin{tabular}{ |c|c|c|c| } 
+		\hline
+& Top 0.1 \%& Top 1 \%& Top 10\% \\ \hline
+Ip prefixes with 0 length mask not included & 0.5698 & 0.7910 & 0.9721 \\ \hline
+Ip prefixes with 0 length mask included & 0.2831 & 0.6377 & 0.9511 \\ \hline 
+	\end{tabular}
+	\caption{ Traffic volume based on source ip prefix (with and without ip prefixes with 0 length mask) }	
+\end{table}
+
+
+\subsection{Traffic sent to/from Princeton}
+Address block for Princeton is 128.112.0.0/16 . What fraction of the traffic (by bytes and by packets) in the trace is sent by Princeton? To Princeton
+
+
+\begin{table}[H]
+	\centering
+	\begin{tabular}{ |c|c|c| } 
+		\hline
+Traffic fraction & By bytes & By packets \\ \hline
+To Princeton & 0.02163 & 0.01380 \\ \hline
+From Princeton & 0.00700 & 0.01014 \\ \hline
+	\end{tabular}
+	\caption{ Traffic sent to/from Princeton in terms of bytes and packets transferred}	
+\end{table}
+
+
+\section{BGP Measurement}
+\subsection{BGP updates per minute}
+\begin{table}[H]
+	\centering
+	\begin{tabular}{ |c|c|c|c|}
+		\hline
+		Session & Session 1 & Session 2 & Session 3\\ \hline
+		BGP Updates per minute & 657.5166666666667& 1068.1 & 3165.016666666667 \\ \hline
+	\end{tabular}
+\end{table}
+\textbf{Describe how you computed this result}
+
+\subsection{Fraction of IP prefixes that experience no update messages}
+\begin{table}[H]
+	\centering
+	\begin{tabular}{ |c|c|c|c|}
+		\hline
+ Session & Session 1 & Session 2 & Session 3\\ \hline
+ Prefixes with no update &0.9890216060208861 &0.9649797854760322 &0.9068765372573193 \\ \hline
+	\end{tabular}
+\end{table}
+
+\subsection{What prefix (or prefixes) experiences the most updates, and how frequent are they}
+\begin{table}[H]
+	\centering
+	\begin{tabular}{ |c|c|c|}
+		\hline
+ Session 1 & 121.52.149.0/24 & 0.012927428962510456 \\ \hline
+ &121.52.144.0/24 & 0.012927  \\ \hline
+ & 121.52.145.0/24 & 0.012927  \\ \hline
+ &121.52.150.0/24 &  0.012927  \\ \hline
+ Session 2 &85.239.28.0/24 &  0.00573  \\ \hline
+ Session 3 &109.161.64.0/20 &  0.00191  \\ \hline
+	\end{tabular}
+\end{table}
+
+\subsection{Fraction of all update messages that comes from the most unstable prefixes}
+\begin{table}[H]
+	\centering
+	\begin{tabular}{ |c|c|c|c|}
+		\hline
+Sessions & Top 0.1\% & Top 1\% & Top 10\%\\ \hline
+Session 1 & 0.05881 & 0.17905& 0.40104 \\ \hline
+Session 2 & 0.06318& 0.17979&  0.50111 \\ \hline
+Session 3 & 0.02891 & 0.069725 & 0.22629 \\ \hline
+	\end{tabular}
+\end{table}
+
+
+
+\section{Summary}
+\begin{itemize}
+\item All the mentioned features seems to work
+\item All the test-cases mentioned pass with changing "read$\_$all" to "read$\_$some" as discussed on slack
+\item Sometimes test-cases does not pass due to slow internet connection 
+\end{itemize}
+
+\section{Appendix}
+\subsection{Code \textit{proxy.c}}
+ 
+\begin{lstlisting}
+#include "proxy_parse.h"
+#include<iostream>
+#include<stdio.h>
+#include<sys/socket.h>
+#include<netinet/in.h>
+#include<arpa/inet.h>
+#include<unistd.h>
+#include<string.h>
+#include<iostream>
+#include<string>
+#include<csignal>
+#include<netdb.h>
+#include<unistd.h>
+#include<sys/types.h>
+using namespace std;
+
+#define maxClientsWaiting 100  // Max number of waiting clients
+#define bufferSize 9000 
+#define smallBufferSize 1000 
+#define maxForkedChilds 20
+char proxyRequestFormat[] = "GET %s HTTP/1.0\r\n%s";
+char defaultProxyPort[] = "80\0";
+int numForkedChild = 0;
+char errResponseFormat[] = "HTTP/1.0 %d %s\r\n\r\n";
+
+struct status{
+	int status;
+	char msg[1000];
+};
+typedef struct status status;
+
+status S500 = {500, "Internal Error\0"};
+
+// To get html for response error
+void sendError(int sockid, status resStatus){
+	char buffer[smallBufferSize];
+	bzero(buffer, smallBufferSize);
+	snprintf(buffer, smallBufferSize, errResponseFormat, resStatus.status, resStatus.msg);
+	send(sockid, buffer, strlen(buffer),0);
+	return;
+}
+
+//To update number of forked children
+void updateNumForkedChild(int update){
+	//TODO: Make it shared and race free in parent and child
+	numForkedChild = numForkedChild + update;
+	return;
+}
+
+int hostname_to_ip(char * hostname , char* ip)
+{
+    struct hostent *he;
+    struct in_addr **addr_list;
+    int i;
+         
+    if ( (he = gethostbyname( hostname ) ) == NULL) 
+    {
+        // get the host info
+        //herror("gethostbyname");
+		//printf("get host by name error");
+        return 1;
+    }
+ 
+    addr_list = (struct in_addr **) he->h_addr_list;
+     
+    for(i = 0; addr_list[i] != NULL; i++) 
+    {
+        //Return the first one;
+        strcpy(ip , inet_ntoa(*addr_list[i]) );
+        return 0;
+    }
+    //printf("%d\n", i) ;
+    return 1;
+}
+
+int getProxyRequest(ParsedRequest* req, char* buffer){
+	//TODO: Fill headers
+	
+	// Set a specific header (key) to a value. In this case,
+	//we set the "Last-Modified" key to be set to have as 
+	//value  a date in February 2014 
+
+	if(ParsedHeader_set(req, "Connection", "close") < 0){
+		//printf("Set header key not work\n");
+		return -1;
+	}
+	
+	if(ParsedHeader_set(req, "Host", req->host) < 0){
+		//printf("Set header key not work\n");
+		return -1;
+	}
+	// Turn the headers from the request into a string.
+	int rlen = ParsedHeader_headersLen(req);
+	char buf[rlen+1];
+	if (ParsedRequest_unparse_headers(req, buf, rlen) < 0) {
+		//printf("unparse failed\n");
+		return -1;
+	}
+	buf[rlen] ='\0';
+	//printf("Header String........\n%s\n.......\n", buf);
+	//print out buf for text headers only 
+	
+	snprintf(buffer, bufferSize, proxyRequestFormat, req->path, buf);
+	return 0;
+}
+
+int main(int argc, char* argv[]){
+ 	if(argc<2){
+		//printf("Usage ./proxy portNumber");
+		return 0;
+	}
+	int port = atoi(argv[1]);
+	int sockid = socket(AF_INET,SOCK_STREAM, 0); 
+	if(sockid<0){
+		//printf("Unable to get sockid");
+		return 0;
+	}
+	struct sockaddr_in serverAdd;
+	serverAdd.sin_family = AF_INET;
+	serverAdd.sin_port=htons(port);
+	serverAdd.sin_addr.s_addr=INADDR_ANY;
+	int bind_status = bind(sockid, (struct sockaddr*)&serverAdd, sizeof(serverAdd));
+	if(bind_status==0){
+		//printf("bind successful\n");
+	}
+	else{
+		//printf("bind failed\n");
+		return 0; 
+	}
+	int listen_status = listen(sockid, maxClientsWaiting);
+	if(listen_status==0){
+		//printf("Listening ...\n");
+	}
+	else{
+		//printf("Listening failed\n");
+		return 0;
+	}
+	// accept connections in loop
+
+	while(1){
+		struct sockaddr clientAdd;
+		socklen_t addrLen;
+		int newSockid = accept(sockid, &clientAdd, &addrLen);
+		// Keep waiting until
+		for (; numForkedChild >= maxForkedChilds; --numForkedChild){
+			//printf("Waiting for some(%d) children to exit\n", numForkedChild-maxForkedChilds);
+			wait();
+		}
+		if(fork()==0){
+			close(sockid); //Child will not listen
+			char buffer[bufferSize];
+			char bufferTemp[bufferSize];
+			bzero(buffer, strlen(buffer));
+			int n;
+			do{
+				bzero(bufferTemp, strlen(bufferTemp));
+				n = recv(newSockid, bufferTemp, bufferSize, 0);
+				strcat(buffer, bufferTemp);
+			}while((strstr(buffer, "\r\n\r\n")==NULL));
+			//printf("--------Request Recieved(%d)------\n%s\n-----------------\n", n, buffer);
+
+			//Parse request 
+			int len = strlen(buffer); 
+			//Create a ParsedRequest to use. This ParsedRequest
+			//is dynamically allocated.
+			ParsedRequest *req = ParsedRequest_create();
+			if (ParsedRequest_parse(req, buffer, len) < 0) {
+				//printf("Request parsing failed\n");
+				sendError(newSockid, S500);
+				return 0;
+			}
+			//printf("Request parsing completed\n");
+
+			if(strcmp(req->method, "GET") != 0 ){
+				//printf("Method %s not implemented\n", req->method);
+				sendError(newSockid, S500);
+				return 0;
+			}
+			if(req->port==NULL){
+				req->port = (char*)malloc(6);
+				bzero(req->port, 6);
+				strcpy(req->port, defaultProxyPort);
+			}
+
+			char ip[50];
+			bzero(ip, 50);
+			hostname_to_ip(req->host, ip);
+			int fSockid = socket(AF_INET,SOCK_STREAM, 0); 
+			struct sockaddr_in fServerAdd;
+			fServerAdd.sin_family = AF_INET;
+			fServerAdd.sin_port=htons(atoi(req->port));
+			fServerAdd.sin_addr.s_addr=inet_addr(ip);
+			int fAddrLen = sizeof(fServerAdd);
+			int conn_status = connect(fSockid,(struct sockaddr*)&fServerAdd, fAddrLen);
+			if(conn_status==0){
+				//printf("Connection to host established\n");
+			}
+			else{
+				//printf("Connection to host failed: %d\n ", conn_status);
+				sendError(newSockid, S500);
+				return 0;
+			}
+			char proxyRequest[bufferSize];	
+			bzero(proxyRequest, bufferSize);
+			if(getProxyRequest(req, proxyRequest)!= 0){
+				//printf("Proxy request unable to create\n");
+				sendError(newSockid, S500);
+				return 0;
+			}
+			//printf("--------Proxy sending request------\n%s\n-----------------\n", proxyRequest);
+			n = send(fSockid,proxyRequest,strlen(proxyRequest),0);
+			bzero(buffer, strlen(buffer));
+			int bytes = 0;
+			//printf("--------Response from host recieved------\n");
+			while((n = recv(fSockid, buffer, bufferSize, 0)) != 0){
+				//printf("%s",buffer);
+				// Send to client
+				send(newSockid,buffer,strlen(buffer),0);
+				bytes = bytes+n;
+				bzero(buffer, strlen(buffer));
+			}
+			//printf("\n-----------------\n");
+			close(newSockid);
+			return 0;
+		}
+		else{
+			updateNumForkedChild(1);
+			close(newSockid);
+		}
+	}
+	return 0;
+}
+
+\end{lstlisting}
+\end{document}
